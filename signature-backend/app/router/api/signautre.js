@@ -12,8 +12,11 @@ import userModel from "../../models/users.js";
 import { SignatureSchema } from "../../schema/signature.js";
 import { status, signStatus } from '../../constants/index.js';
 import { convertToPdf, getFilledDocxBuffer } from './template.js';
+import { bcryptPass, compareBcrypt, generateOtp } from "../../libs/encryption.js";
+import { sendSignatureOtp } from '../../libs/communication.js';
+import { getIO } from "../../config/socket.js";
 import '../../../app/config/env.js';
-
+import { addRequestToQueue } from '../../libs/batchSchedular.js';
 
 const router = Router();
 
@@ -115,7 +118,49 @@ router.delete("/deleteSignature/:id", async (req, res) => {
 	}
 })
 
-router.patch("/signRequest", async (req, res) => {
+router.post("/getOtpReq/:id", async (req, res) => {
+	try {
+		const reqId = req.params.id;
+		const request = await TemplateModel.findOne({ id: reqId, status: { $ne: status.deleted } });
+		if (!request) {
+			return res.status(404).json({ error: "Request not found" });
+		}
+		const otp = generateOtp(6).toString();
+		const encryptedOtp = await bcryptPass(otp)
+		request.signOtp = encryptedOtp;
+		await request.save();
+
+		const userId = request?.delegatedTo || request.assignedTo;
+		const user = await userModel.findOne({ id: userId, status: { $ne: status.deleted } });
+		const email = user.email;
+		sendSignatureOtp(email, otp);
+
+		res.status(200).json({ message: "OTP sent successfully", otp: otp });
+	} catch (error) {
+		console.error("Error sending OTP:", error);
+		res.status(500).json({ error: "Failed to send OTP" });
+	}
+})
+
+router.post("/verifyOtp", async (req, res) => {
+	try {
+		const { reqId, otp } = req.body;
+		const request = await TemplateModel.findOne({ id: reqId, status: { $ne: status.deleted } });
+		if(!request){
+			return res.status(404).json({ error: "Request not found" });
+		}
+		const originalOtp = request.signOtp;
+		const validOtp = await compareBcrypt(originalOtp, otp.toString());
+		if (!validOtp) {
+			return res.status(400).json({ error: "Invalid OTP" });
+		}
+		res.json({ message: "Successfully verified" })
+	} catch (error) {
+		res.status(500).json({ error: "Failed to verify OTP" });
+	}
+})
+
+router.post("/signRequest", async (req, res) => {
 	try {
 		const { requestId, signatureId, signedBy } = req.body;
 		const hasPlaceholder = await hasDynamicPlaceholder(requestId);
@@ -131,58 +176,88 @@ router.patch("/signRequest", async (req, res) => {
 		if (!signingUser) {
 			return res.status(404).json({ error: "User not found" });
 		}
-		const template = await TemplateModel.findOne({ _id: requestId, status: { $ne: status.deleted } });
+		const template = await TemplateModel.findOne({ id: requestId, status: { $ne: status.deleted } });
 		if (!template) {
 			return res.status(404).json({ error: "Template not found" });
 		}
 		template.signedBy = signedBy;
-		template.signStatus = signStatus.Signed;
+		template.signStatus = signStatus.inProcess;
 		template.status = status.active;
 		template.signatureId = signatureId;
-
-		const certDir = path.join("uploads", "certificates", template._id.toString());
-		generateCertificates(template, signatureImageUrl, certDir);
-
+		template.signedDate = new Date();
+		
 		await template.save();
+		const io = getIO();
+		// io.to(template.createdBy).emit("progressReq", template.id);
+		// io.to(template.assignedTo)
+		// .to(template.createdBy)
+		// .to(template.delegatedTo || '')
+		// .emit("signingReq", template.id);
+
+		io.emit("progressReq", template.id);
+
+		const certDir = path.join("uploads", "certificates", template.id.toString());
+		// generateCertificates(template, signatureImageUrl, certDir);
+		 addRequestToQueue(template, signatureImageUrl, certDir);
+
 		res.status(200).json({ message: "Request signed successfully", data: template });
 	} catch (error) {
 		res.status(500).json({ error: "Failed to sign request" });
 	}
 })
 
-async function generateCertificates(template, signatureImageUrl, certDir) {
-	try {
-		if (!fs.existsSync(certDir)) {
-			await fs.promises.mkdir(certDir, { recursive: true });
-		}
-		const dataList = template.data;
-		const templatePath = path.resolve(template.url);
+// async function generateCertificates(template, signatureImageUrl, certDir) {
+// 	try {
+// 		if (!fs.existsSync(certDir)) {
+// 			await fs.promises.mkdir(certDir, { recursive: true });
+// 		}
+// 		const dataList = template.data;
+// 		const templatePath = path.resolve(template.url);
 
-		for (const doc of dataList) {
-			const today = new Date();
-			doc.signedDate = today.toLocaleDateString('en-GB');
-			doc.status = status.active;
-			doc.signStatus = signStatus.Signed;
+// 		for (const doc of dataList) {
+// 			if (doc.signStatus === signStatus.rejected && doc.rejectionReason) {
+// 				continue;
+// 			}
+// 			const today = new Date();
+// 			doc.signedDate = today.toLocaleDateString('en-GB');
+// 			doc.status = status.active;
+// 			doc.signStatus = signStatus.Signed;
 
-			const baseUrl = process.env.CURRENT_SERVER_URL;
-			const qrUrl = `${baseUrl}/uploads/certificates/${template._id}/${doc._id}.pdf`;
+// 			// const baseUrl = process.env.CURRENT_SERVER_URL;
+// 			// const qrUrl = `${baseUrl}/uploads/certificates/viewDetails/${template.id}/${doc.id}.pdf`;
+// 			const baseUrl = process.env.FRONTEND_URL;
+// 			const qrUrl = `${baseUrl}/viewDetails/${template.id}/${doc.id}.pdf`;
 
+// 			const docxBuffer = await getFilledDocxBuffer(templatePath, doc.data, signatureImageUrl, qrUrl);
+// 			const pdfBuffer = await convertToPdf(docxBuffer);
 
-			const docxBuffer = await getFilledDocxBuffer(templatePath, doc.data, signatureImageUrl, qrUrl);
-			const pdfBuffer = await convertToPdf(docxBuffer);
+// 			const outputPath = path.join(certDir, `${doc.id}.pdf`);
+// 			fs.writeFileSync(outputPath, pdfBuffer);
+// 			console.log("gen cert : ", outputPath)
 
-			const outputPath = path.join(certDir, `${doc._id}.pdf`);
-			fs.writeFileSync(outputPath, pdfBuffer);
-		}
+// 		}
+// 		const updatedTemplate = await TemplateModel.findOne({ id: template.id, status: { $ne: status.deleted } });
+// 		updatedTemplate.signStatus = signStatus.Signed;
+// 		await updatedTemplate.save()
 
-	} catch (error) {
-		console.error("Error generating certificates : ", error);
-	}
-}
+// 		const io = getIO();
+// 		// io.to(updatedTemplate.createdBy)
+// 		// 	.to(template.assignedTo)
+// 		// 	.to(template.delegatedTo || '')
+// 		// 	.emit("signedReq", template.id);
+
+// 		// io.to(template.assignedTo).emit("signedReq", template.id);
+
+// 		io.emit("signedReq", template.id);
+
+// 	} catch (error) {
+// 		console.error("Error generating certificates : ", error);
+// 	}
+// }
 
 async function hasDynamicPlaceholder(templateId) {
 	try {
-		const template = await TemplateModel.findById(templateId);
+		const template = await TemplateModel.findOne({ id: templateId, status: { $ne: status.deleted } });
 		if (!template || !template.url) return false;
 
 		const templatePath = path.resolve(template.url);
@@ -199,8 +274,8 @@ async function hasDynamicPlaceholder(templateId) {
 
 		// Match a dynamic placeholder like {%Signature}
 		const dynamicPlaceholderRegex = /{\%\s*Signature\s*}/i;
-
-		return dynamicPlaceholderRegex.test(text);
+		const qr = /{%\s*QR\s*}/i;
+		return dynamicPlaceholderRegex.test(text) && qr.test(text);;
 	} catch (err) {
 		console.error("Error checking dynamic placeholder:", err);
 		return false;

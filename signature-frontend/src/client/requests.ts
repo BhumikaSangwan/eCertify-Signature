@@ -55,6 +55,34 @@ export class RequestClient extends Client {
 		return res.data;
 	}
 
+	async getDocData({ id, docId }: { id: string, docId: string }) {
+		const res = await this.request("GET", `/api/templates/docData/${id}/${docId}`);
+		return res.data;
+	}
+
+	async getDispatchSlip(id: string) {
+		const res = await this.request("GET", `/api/templates/dispatchSlip/${id}`);
+		return res.data;
+	}
+
+	async dispatchRegister({reqId, registerNumber}: {reqId: string, registerNumber: number}) {
+		const res = await this.request("POST", `/api/templates/dispatchRegister/${reqId}`, {
+			data: { registerNumber }
+		});
+		return res.data;
+	}
+
+	async rejectDoc({
+		reqId, docId, reason
+	}: {
+		reqId: string;
+		docId: string;
+		reason: string;
+	}) {
+		const sentData = { reqId, docId, reason };
+		await this.request("POST", '/api/templates/rejectDoc', { data: sentData });
+	}
+
 	async getTemplate(id: string) {
 		const res = await this.request("GET", `/api/templates/getTemplate/${id}`, { responseType: "blob" });
 		return res.data;
@@ -110,8 +138,10 @@ export class RequestClient extends Client {
 	// 	return unprocessedData.data;
 	// }
 
-	async rejectRequest(requestId: string) {
-		await this.request("PATCH", `/api/templates/rejectReq/${requestId}`);
+	async rejectRequest({ rejectionReason, reqId }: { rejectionReason: string, reqId: string }) {
+		await this.request("PATCH", `/api/templates/rejectReq/${reqId}`, {
+			data: { rejectionReason },
+		});
 		return;
 	}
 
@@ -188,8 +218,18 @@ export class RequestClient extends Client {
 
 
 	async signRequest({ requestId, signatureId, signedBy }: { requestId: string; signatureId: string, signedBy: string }) {
-		return await this.request("PATCH", `/api/signatures/signRequest`, {
+		return await this.request("POST", `/api/signatures/signRequest`, {
 			data: { requestId, signatureId, signedBy }
+		});
+	}
+
+	async getOtpReq(reqId: string) {
+		await this.request("POST", `/api/signatures/getOtpReq/${reqId}`);
+	}
+
+	async sendOtp({ reqId, otp }: { reqId: string, otp: string }) {
+		await this.request("POST", `/api/signatures/verifyOtp`, {
+			data: { reqId, otp }
 		});
 	}
 };

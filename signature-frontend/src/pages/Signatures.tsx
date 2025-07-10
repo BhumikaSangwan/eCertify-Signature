@@ -1,32 +1,22 @@
 import React, { useEffect, useState } from "react";
 import {
 	Button,
-	Card,
-	Col,
 	Drawer,
 	Form,
-	Input,
 	Flex,
-	Row,
 	Upload,
 	message,
 	Typography,
-	Divider,
-	Space,
+	Col,
+	Row,
+	Card,
 	Popconfirm
 } from "antd";
-import { useLocation } from "react-router-dom";
-import {
-	UploadOutlined,
-	DeleteOutlined,
-	CheckCircleTwoTone,
-	PlusOutlined
-} from "@ant-design/icons";
+import { UploadOutlined, DeleteOutlined } from "@ant-design/icons";
 import MainAreaLayout from "../components/main-layout/main-layout";
 import { useAppStore, requestClient } from "../store";
 import styles from "./styles.module.css"
 
-const { Title } = Typography;
 
 interface Signature {
 	id: string;
@@ -37,11 +27,7 @@ interface Signature {
 
 
 const Signatures: React.FC = () => {
-	const location = useLocation();
-	const { requestId } = location.state || {};
-
 	const [signatureList, setSignatureList] = useState<Signature[]>([]);
-	const [selectedSignatureId, setSelectedSignatureId] = useState<string | null>(null);
 	const [isDrawerOpen, setIsDrawerOpen] = useState(false);
 	const [form] = Form.useForm();
 	const [fileList, setFileList] = useState<any[]>([]);
@@ -49,7 +35,7 @@ const Signatures: React.FC = () => {
 
 	useEffect(() => {
 		const init = async () => {
-			await useAppStore.getState().init(); // initialize session
+			await useAppStore.getState().init();
 			const session = useAppStore.getState().session;
 
 			if (!session?.userId) {
@@ -57,7 +43,7 @@ const Signatures: React.FC = () => {
 				return;
 			}
 
-			setUserId(session.userId); // store userId in local state
+			setUserId(session.userId);
 			getSignatures(session.userId);
 
 		};
@@ -115,55 +101,6 @@ const Signatures: React.FC = () => {
 		}
 	};
 
-
-	const handleSign = async () => {
-		if (!selectedSignatureId || !requestId) {
-			message.error("Select a signature first.");
-			return;
-		}
-		try {
-			await requestClient.signRequest({ requestId, signatureId: selectedSignatureId, signedBy: userId });
-			message.success("Documents signed successfully")
-		} catch (error) {
-			console.error("Failed to sign request:", error);
-			message.error("Failed to sign request.");
-			return;
-		}
-	};
-
-	const renderSignatureCard = (sig: Signature) => (
-		<Card
-			key={sig.id}
-			hoverable
-			className={styles.customCard}
-			onClick={() => requestId && setSelectedSignatureId(sig.id)}
-			style={{
-				border: selectedSignatureId === sig.id ? "2px solid #1890ff" : undefined,
-				cursor: requestId ? "pointer" : "default"
-			}}
-			cover={
-				<div className={styles.signatureImageWrapper}>
-					<img
-						src={`http://localhost:3000/${sig.url}`}
-						alt="Signature"
-						className={styles.signatureImage}
-					/>
-				</div>
-			}
-			actions={[
-				<Popconfirm
-					title="Delete this signature?"
-					onConfirm={() => handleDeleteSignature(sig.id)}
-				>
-					<DeleteOutlined key="delete" style={{ color: "red" }} />
-				</Popconfirm>,
-				selectedSignatureId === sig.id && requestId ? (
-					<CheckCircleTwoTone twoToneColor="#52c41a" key="selected" />
-				) : null
-			]}
-		/>
-	);
-
 	return (
 
 		<MainAreaLayout
@@ -181,32 +118,6 @@ const Signatures: React.FC = () => {
 			}
 		>
 
-			{/* Conditional Sign Form */}
-			{requestId && (
-				<div
-					className={styles.signForm}
-				>
-					<Title level={4}>Choose a signature to sign the request</Title>
-					<p>Click a signature card below to select. Then click "Sign".</p>
-					<Button
-						type="primary"
-						disabled={!selectedSignatureId}
-						onClick={handleSign}
-						block
-					>
-						Sign Document
-					</Button>
-				</div>
-			)}
-
-			{/* Signature Gallery */}
-			<Row gutter={[16, 16]}>
-				{signatureList.map((sig) => (
-					<Col key={sig.id} xs={24} sm={12} md={8}>
-						{renderSignatureCard(sig)}
-					</Col>
-				))}
-			</Row>
 
 			{/* Drawer for Adding Signature */}
 			<Drawer
@@ -233,6 +144,84 @@ const Signatures: React.FC = () => {
 					</Button>
 				</Form>
 			</Drawer>
+			<div>
+				<Row gutter={[16, 16]}>
+					{/* {signatureList.map((sig: any) => (
+						<Col key={sig.id} xs={24} sm={12} md={8}>
+							<Card
+								hoverable
+								cover={
+									<img
+										alt="Signature"
+										src={`http://localhost:3000/${sig.url}`}
+										style={{ height: 100, objectFit: "contain", padding: 10 }}
+									/>
+								}
+							>
+								<hr style={{ margin: "0 0 10px" }} />
+								<div style={{ display: "flex", justifyContent: "center" }}>
+									<DeleteOutlined
+										style={{ color: "red", fontSize: 20, cursor: "pointer" }}
+										onClick={() => handleDeleteSignature(sig.id)} // Replace with your actual delete logic
+									/>
+								</div>
+							</Card>
+						</Col>
+					))} */}
+					{signatureList.map((sig: any) => (
+  <Col key={sig.id} xs={24} sm={12} md={8}>
+    <Card
+      hoverable
+      bodyStyle={{ padding: 0 }} // Remove default body padding
+      cover={
+        <img
+          alt="Signature"
+          src={`http://localhost:3000/${sig.url}`}
+          style={{
+            height: 160,
+            objectFit: "contain",
+            padding: 10,
+            width: "100%",
+          }}
+        />
+      }
+    >
+      <hr
+        style={{
+          border: "none",
+          borderTop: "1px solid #e0e0e0", // Light gray
+          margin: 0,
+        }}
+      />
+      <div
+        style={{
+          height: 50,
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "center",
+        }}
+      >
+        <Popconfirm
+          title="Delete this signature?"
+          description="Are you sure you want to delete this signature?"
+          onConfirm={() => handleDeleteSignature(sig.id)}
+          okText="Yes"
+          cancelText="No"
+        >
+          <DeleteOutlined
+            style={{
+              color: "red",
+              fontSize: 20,
+              cursor: "pointer",
+            }}
+          />
+        </Popconfirm>
+      </div>
+    </Card>
+  </Col>
+))}
+				</Row>
+			</div>
 		</MainAreaLayout>
 
 	)

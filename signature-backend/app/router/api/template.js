@@ -19,6 +19,7 @@ import { signStatus, status } from '../../constants/index.js';
 import archiver from "archiver";
 import { fileURLToPath } from 'url';
 import crypto from "crypto";
+import { getIO } from "../../config/socket.js";
 
 
 const router = express.Router();
@@ -187,7 +188,24 @@ router.get("/getRequests", checkLoginStatus, async (req, res, next) => {
 router.get("/:id", checkLoginStatus, async (req, res, next) => {
 	try {
 		const reqId = req.params.id;
-		let result = await TemplateModel.findOne({ _id: reqId, status: { $ne: status.deleted } });
+		let result = await TemplateModel.findOne({
+			id: reqId,
+			status: { $ne: status.deleted }
+		},
+			{
+				// createdAt: 0,
+				// description: 0,
+				// templateVariables: 0,
+				// updatedAt: 0,
+				// id: 0,
+				// signatureId: 0,
+				// signedBy: 0,
+				// assignedTo: 0,
+				_id: 1,
+				data: 1,
+				// rejectedDocs: 1,
+				description: 1,
+			});
 		if (!result) {
 			return res.status(404).json({ message: "Template not found" });
 		}
@@ -205,12 +223,11 @@ router.post("/requestForSignature", async (req, res) => {
 			return res.status(400).json({ message: "Missing requestId or officerId" });
 		}
 
-		const template = await TemplateModel.findById(requestId);
+		const template = await TemplateModel.findOne({ id: requestId, status: { $ne: status.deleted } });
 		if (!template) {
 			return res.status(404).json({ message: "Template request not found" });
 		}
 
-		// Optional: check if officer exists
 		const officer = await userModel.findOne({ id: officerId });
 		if (!officer) {
 			return res.status(404).json({ message: "Officer not found" });
@@ -220,6 +237,12 @@ router.post("/requestForSignature", async (req, res) => {
 		template.signStatus = signStatus.readForSign;
 		template.status = status.active;
 		await template.save();
+		const totalDocs = template.data.length;
+		const userId = req.session.userId;
+		const plainTemplate = template.toObject();
+
+		const io = getIO();
+		io.to(officerId).emit("newRequest", { ...plainTemplate, userId, totalDocs, officer: officerId });
 
 		res.status(200).json({ message: "Request delegated successfully", data: template });
 	} catch (error) {
@@ -230,13 +253,19 @@ router.post("/requestForSignature", async (req, res) => {
 
 router.patch("/rejectReq/:id", async (req, res) => {
 	try {
-		const template = await TemplateModel.findById(req.params.id);
+		const reason = req.body.rejectionReason;
+		const template = await TemplateModel.findOne({ id: req.params.id });
 		if (!template) {
 			return res.status(404).json({ message: "Template request not found" });
 		}
 
 		template.signStatus = signStatus.rejected;
+		template.rejectionReason = reason;
 		await template.save();
+
+		const io = getIO();
+		io.emit("rejectedReq", template.id);
+
 		res.status(200).json({ message: "Request rejected successfully" });
 	} catch (error) {
 		console.error("Error rejecting request:", error);
@@ -247,7 +276,7 @@ router.patch("/rejectReq/:id", async (req, res) => {
 router.patch("/delegateReq/:id", async (req, res) => {
 	try {
 		const { fromOfficerId, toOfficerId } = req.body;
-		const template = await TemplateModel.findById(req.params.id);
+		const template = await TemplateModel.findOne({ id: req.params.id });
 		if (!template) {
 			return res.status(404).json({ message: "Template request not found" });
 		}
@@ -255,6 +284,15 @@ router.patch("/delegateReq/:id", async (req, res) => {
 		template.updatedBy = fromOfficerId;
 		template.signStatus = signStatus.delegated;
 		await template.save();
+
+		const totalDocs = template.data.length;
+		const userId = req.session.userId;
+		const plainTemplate = template.toObject();
+
+		const io = getIO();
+		io.emit("delegatedReq", template.id);
+		io.to(toOfficerId).emit("newRequest", { ...plainTemplate, userId, totalDocs, officer: toOfficerId });
+
 		res.status(200).json({ message: "Request delegated successfully", data: template });
 	} catch (error) {
 		console.error("Error delegating request:", error);
@@ -266,7 +304,7 @@ router.get("/downloadAllDocs/:id", async (req, res, next) => {
 	try {
 		const reqId = req.params.id;
 
-		const template = await TemplateModel.findById(reqId);
+		const template = await TemplateModel.findOne({ id: reqId });
 		if (!template) {
 			return res.status(404).json({ message: "Template request not found" });
 		}
@@ -274,7 +312,6 @@ router.get("/downloadAllDocs/:id", async (req, res, next) => {
 
 
 		if (!fs.existsSync(folderPath)) {
-			console.log("folder not found");
 			return res.status(404).json({ message: "Folder not found" });
 		}
 
@@ -302,7 +339,7 @@ router.get("/downloadAllDocs/:id", async (req, res, next) => {
 router.get("/printAllDocs/:id", async (req, res, next) => {
 	try {
 		const reqId = req.params.id;
-		const template = await TemplateModel.findById(reqId);
+		const template = await TemplateModel.findOne({ id: reqId });
 		if (!template) {
 			return res.status(404).json({ message: "Template request not found" });
 		}
@@ -334,20 +371,23 @@ router.get("/printAllDocs/:id", async (req, res, next) => {
 		res.setHeader("Content-Disposition", "inline; filename=merged_documents.pdf");
 		res.send(Buffer.from(mergedPdfBytes));
 	} catch (error) {
-		console.error("Error in /printAllDocs:", error);
 		next(error);
 	}
 });
 
 router.patch("/dispatchReq/:id", async (req, res) => {
 	try {
-		const template = await TemplateModel.findById(req.params.id);
+		const template = await TemplateModel.findOne({ id: req.params.id });
 		if (!template) {
 			return res.status(404).json({ message: "Template request not found" });
 		}
 
 		template.signStatus = signStatus.dispatched;
 		await template.save();
+
+		const io = getIO();
+		io.emit("dispatchedReq", template.id);
+
 		res.status(200).json({ message: "Request dispatched successfully" });
 	} catch (error) {
 		console.error("Error dispatching request:", error);
@@ -357,7 +397,7 @@ router.patch("/dispatchReq/:id", async (req, res) => {
 
 router.get("/getTemplate/:id", async (req, res) => {
 	try {
-		const template = await TemplateModel.findById({ _id: req.params.id, status: { $ne: status.deleted } });
+		const template = await TemplateModel.findOne({ id: req.params.id, status: { $ne: status.deleted } });
 		if (!template || !template.templateName) {
 			return res.status(404).json({ message: "Template not found" });
 		}
@@ -379,7 +419,7 @@ router.get("/getTemplate/:id", async (req, res) => {
 
 router.get("/downloadExcelTemplate/:id", async (req, res) => {
 	try {
-		const template = await TemplateModel.findById(req.params.id);
+		const template = await TemplateModel.findOne({ id: req.params.id, status: { $ne: status.deleted } });
 
 		if (!template || !template.templateName) {
 			return res.status(404).json({ message: "Template not found" });
@@ -406,7 +446,7 @@ router.delete("/deleteReq/:id", async (req, res, next) => {
 	const reqId = req.params.id;
 
 	try {
-		const request = await TemplateModel.findById(reqId);
+		const request = await TemplateModel.findOne({ id: reqId });
 		request.status = status.deleted;
 		await request.save();
 		if (!request) {
@@ -419,8 +459,8 @@ router.delete("/deleteReq/:id", async (req, res, next) => {
 })
 
 router.post("/deleteDoc", async (req, res, next) => {
-	const { id, docId } = req.body;
-	const templateDoc = await TemplateModel.findOne({ _id: id });
+	const { reqId, docId } = req.body;
+	const templateDoc = await TemplateModel.findOne({ id: reqId });
 	if (!templateDoc) {
 		return res.status(404).json({ message: "Template doc not found" });
 	}
@@ -439,12 +479,15 @@ router.post("/deleteDoc", async (req, res, next) => {
 router.get("/preview/:id/:docId", async (req, res, next) => {
 	try {
 		const { id, docId } = req.params;
-		const templateDoc = await TemplateModel.findById(id);
+		const templateDoc = await TemplateModel.findOne({ id: id });
 		if (!templateDoc) {
 			return res.status(404).json({ message: "Template not found" });
 		}
 
-		const docData = templateDoc.data.find(doc => doc._id.toString() === docId);
+		const docData = templateDoc.data.find(
+			(doc) => doc.id?.toString() === docId.toString() && doc.status !== status.deleted
+		);
+
 		if (!docData) {
 			return res.status(404).json({ message: "Document not found" });
 		}
@@ -455,16 +498,14 @@ router.get("/preview/:id/:docId", async (req, res, next) => {
 		res.setHeader("Content-Disposition", "attachment; filename=preview.pdf");
 
 		if (signedBy && signatureId) {
-			// const signatureDoc = await SignatureModel.findOne({ id: signatureId });
-			// if (signatureDoc && signatureDoc.url) {
-			// 	signatureImageUrl = signatureDoc.url;
-			// }
 			const pdfPath = path.join("uploads", "certificates", id, `${docId}.pdf`);
 			if (existsSync(pdfPath)) {
+				console.log("exists");
 				const pdfBuffer = fs.readFileSync(pdfPath);
 				res.send(pdfBuffer);
 			}
 			else {
+				console.log("not exists");
 				const pdfBuffer = await getUnsignedCertificates(templateDoc, docData.data);
 				res.send(pdfBuffer);
 			}
@@ -481,6 +522,65 @@ router.get("/preview/:id/:docId", async (req, res, next) => {
 	}
 });
 
+router.get("/docData/:id/:docId", async (req, res, next) => {
+	try {
+		const { id, docId } = req.params;
+		const templateDoc = await TemplateModel.findOne({ id: id });
+		if (!templateDoc) {
+			return res.status(404).json({ message: "Template not found" });
+		}
+		const docData = templateDoc.data.find(doc => doc.id?.toString() === docId.toString() && doc.status !== status.deleted);
+		if (!docData) {
+			return res.status(404).json({ message: "Document not found" });
+		}
+		const signatureId = templateDoc.signatureId;
+		const signedBy = templateDoc.signedBy;
+		const officer = await userModel.findOne({ id: signedBy });
+		const officerName = officer?.name || "Unknown Officer";
+		const result = {
+			id: docData.id,
+			signedBy: officerName,
+			createdAt: templateDoc.createdAt,
+			updatedAt: templateDoc.updatedAt,
+			signedDate: templateDoc.signedDate,
+			signatureId: templateDoc.signatureId
+		};
+		res.json({ result });
+	} catch (error) {
+		console.log("docData error : ", error);
+		next(error);
+	}
+}
+)
+
+router.get("/dispatchSlip/:id", async (req, res, next) => {
+	try {
+		const { id } = req.params;
+		const templateDoc = await TemplateModel.findOne({ id: id });
+		if (!templateDoc) {
+			return res.status(404).json({ message: "Template not found" });
+		}
+	} catch (error) {
+		console.log("dispatch slip error : ", error);
+		next(error);
+	}
+})
+
+router.post("/dispatchRegister/:id", async (req, res, next) => {
+	try {
+		const { id } = req.params;
+		const { registerNumber } = req.body;
+		const templateDoc = await TemplateModel.findOne({ id: id });
+		if (!templateDoc) {
+			return res.status(404).json({ message: "Template not found" });
+		}
+		res.json({ message: "Dispatch register...", registerNumber});
+	} catch (error) {
+		console.log("dispatch register error : ", error);
+		next(error);
+	}
+})
+
 router.post("/uploadExcelFile", upload.single("excel"), async (req, res) => {
 	try {
 		if (!req.file) {
@@ -488,7 +588,7 @@ router.post("/uploadExcelFile", upload.single("excel"), async (req, res) => {
 		}
 		const userId = req.body.reqId;
 		const excelFilePath = path.join("uploads", "ExcelFiles", req.file.filename);
-		const template = await TemplateModel.findOne({ _id: userId });
+		const template = await TemplateModel.findOne({ id: userId });
 		if (!template) {
 			return res.status(404).json({ error: "Template not found for current user" });
 		}
@@ -542,9 +642,9 @@ router.post("/uploadExcelFile", upload.single("excel"), async (req, res) => {
 router.post("/cloneReq/:id", async (req, res, next) => {
 	try {
 		const reqId = req.params.id;
-		const prevReq = await TemplateModel.findById(reqId);
-		if(!prevReq){
-			return res.status(404).json({message: "Request not found"});
+		const prevReq = await TemplateModel.findOne({ id: reqId });
+		if (!prevReq) {
+			return res.status(404).json({ message: "Request not found" });
 		}
 		const newReq = new TemplateModel({
 			url: prevReq.url,
@@ -555,9 +655,32 @@ router.post("/cloneReq/:id", async (req, res, next) => {
 		});
 
 		await newReq.save();
-		return res.status(200).json({message: "Request cloned successfully"});
+		return res.status(200).json({ message: "Request cloned successfully" });
 	} catch (error) {
 		console.log("error cloning req ", error);
+		next(error);
+	}
+})
+
+router.post("/rejectDoc", async (req, res, next) => {
+	try {
+		const { reqId, docId, reason } = req.body;
+		const request = await TemplateModel.findOne({ id: reqId, status: { $ne: status.deleted } });
+		if (!request) {
+			return res.status(404).json({ message: "Request not found" });
+		}
+		const targetDoc = request.data.find((item) => item.id.toString() === docId);
+		if (!targetDoc) {
+			return res.status(404).json({ message: "Document not found in request" });
+		}
+
+		targetDoc.signStatus = signStatus.rejected;
+		targetDoc.rejectionReason = reason;
+		request.rejectedDocs += 1;
+		await request.save();
+		return res.status(200).json({ message: "Document rejected successfully", updatedReq: request });
+	} catch (error) {
+		console.log("error rejecting doc ", error);
 		next(error);
 	}
 })
@@ -609,43 +732,6 @@ function prepareExcelData(excelPath, templateVariables) {
 
 	return { rejectedIdx, validRows, totalCount, headersPresent: true };
 }
-
-// export const getFilledDocxBuffer = async (templatePath, data, signatureImageUrl = null, qrUrl = null) => {
-// 	try {
-// 		const content = fs.readFileSync(templatePath, "binary");
-// 		const zip = new PizZip(content);
-
-// 		const certDir = path.join("uploads", "certificates", template._id.toString());
-
-// 		data["Signature"] = signatureImageUrl ? signatureImageUrl : "";
-
-// 		const imageModule = new ImageModule({
-// 			centered: false,
-// 			getImage(tagValue, tagName) {
-// 				if (fs.existsSync(tagValue)) {
-// 					return fs.readFileSync(tagValue);
-// 				}
-// 				return Buffer.alloc(0); // empty fallback
-// 			},
-// 			getSize() {
-// 				return [150, 50];
-// 			}
-// 		});
-
-// 		const doc = new Docxtemplater(zip, {
-// 			modules: [imageModule],
-// 			paragraphLoop: true,
-// 			linebreaks: true,
-// 		});
-
-// 		doc.render(data);
-// 		return doc.getZip().generate({ type: "nodebuffer" });
-
-// 	} catch (err) {
-// 		console.error("Error rendering DOCX with image:", err);
-// 		throw err;
-// 	}
-// };
 
 export const getFilledDocxBuffer = async (
 	templatePath,
@@ -719,19 +805,36 @@ export const getFilledDocxBuffer = async (
 	}
 };
 
-
 export const convertToPdf = (docxBuffer) => {
-	return new Promise((resolve, reject) => {
-		libre.convert(docxBuffer, ".pdf", undefined, (err, done) => {
-			if (err) {
-				console.error("Error converting to PDF:", err);
-				reject(err);
-			} else {
-				resolve(done);
-			}
-		});
-	});
+  return new Promise((resolve, reject) => {
+    if (!docxBuffer || !Buffer.isBuffer(docxBuffer) || docxBuffer.length === 0) {
+      return reject(new Error("Invalid DOCX buffer: Buffer is empty or malformed"));
+    }
+
+    libre.convert(docxBuffer, ".pdf", undefined, (err, done) => {
+      if (err) {
+        console.error("Error converting to PDF:", err);
+        reject(err);
+      } else {
+        resolve(done);
+      }
+    });
+  });
 };
+
+
+// export const convertToPdf = (docxBuffer) => {
+// 	return new Promise((resolve, reject) => {
+// 		libre.convert(docxBuffer, ".pdf", undefined, (err, done) => {
+// 			if (err) {
+// 				console.error("Error converting to PDF:", err);
+// 				reject(err);
+// 			} else {
+// 				resolve(done);
+// 			}
+// 		});
+// 	});
+// };
 
 function extractPlaceholders(filePath) {
 	const content = fs.readFileSync(filePath, 'binary');

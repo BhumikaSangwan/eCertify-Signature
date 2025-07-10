@@ -17,6 +17,8 @@ import CustomTable from "../components/CustomTable";
 import MainAreaLayout from "../components/main-layout/main-layout";
 import { requestClient } from "../store";
 import type { ColumnsType } from 'antd/es/table';
+import { Modal } from "antd";
+
 
 
 interface RequestTableRow {
@@ -24,9 +26,9 @@ interface RequestTableRow {
 }
 
 interface RequestDataItem {
-	_id: string;
+	id: string;
 	data: Record<string, any>;
-	signStatus: number;
+	signStatus: number;	
 }
 
 export default function RequestPage() {
@@ -42,7 +44,9 @@ export default function RequestPage() {
 	const [, setCurrentPage] = useState<number>(1);
 	const [requestName, setRequestName] = useState<string>("Document Management");
 	const { id } = useParams<{ id: string }>();
-
+	const [rejectionFormVisible, setRejectionFormVisible] = useState(false);
+	const [rejectionReason, setRejectionReason] = useState('');
+	const [rejectingItem, setRejectingItem] = useState<RequestDataItem | null>(null);
 
 
 	const fetchRequest = async (id: string) => {
@@ -68,37 +72,15 @@ export default function RequestPage() {
 			}));
 
 			const fixedColumns = [
-				// {
-				// 	title: "Request Status",
-				// 	dataIndex: "requestStatus",
-				// 	key: "requestStatus",
-				// 	render: (status: number) => {
-				// 		const statusMap: { [key: number]: { text: string; color: string } } = {
-				// 			0: { text: "Unsigned", color: "gray" },
-				// 			1: { text: "Read for Sign", color: "blue" },
-				// 			2: { text: "Rejected", color: "red" },
-				// 			3: { text: "Delegated", color: "purple" },
-				// 			4: { text: "In Process", color: "orange" },
-				// 			5: { text: "Signed", color: "green" },
-				// 			6: { text: "Ready for Dispatch", color: "teal" },
-				// 			7: { text: "Dispatched", color: "cyan" }
-				// 		};
-				// 		const { text, color } = statusMap[status] || {
-				// 			text: "Unknown",
-				// 			color: "default",
-				// 		};
-				// 		return <Tag color={color}>{text}</Tag>;
-				// 	},
-				// },
 				{
 					title: "Preview",
 					dataIndex: "preview",
 					key: "preview",
 				},
 				{
-					title: "Delete",
-					dataIndex: "delete",
-					key: "delete",
+					title: "Actions",
+					dataIndex: "action",
+					key: "action",
 				},
 			];
 
@@ -108,21 +90,29 @@ export default function RequestPage() {
 			const formattedData = dataArray.map((item: RequestDataItem, index: number) => {
 				return {
 					key: index,
-					_id: item._id,
+					id: item.id,
 					...item.data,
 					requestStatus: result.signStatus,
 					preview: (
-						<Button type="link" onClick={() => showPreview(item)}>
-							Preview
-						</Button>
+						<Flex>
+							{ item.signStatus != 2 && <Button onClick={() => showPreview(item)}>Preview</Button>}
+							{ item.signStatus == 2 && <Tag color="red" style={{padding: "5px 15px"}}>Rejected</Tag>}
+						</Flex>
 					),
-					delete: (
-						<Popconfirm
-							title="Are you sure to delete this request?"
-							onConfirm={() => deleteDocument(item)}
-						>
-							<Button type="link" danger>Delete</Button>
-						</Popconfirm>
+					action: (
+						<Flex>
+							<Popconfirm
+								title="Are you sure to delete this request?"
+								onConfirm={() => deleteDocument(item)}
+							>
+								<Button danger style={{marginRight: "10px"}}>Delete</Button>
+							</Popconfirm>
+							{
+								item.signStatus != 2 && 
+								<Button onClick={() => showRejectionForm(item)}>Reject</Button>
+							}
+							
+						</Flex>
 					),
 				};
 			});
@@ -137,7 +127,7 @@ export default function RequestPage() {
 
 	async function showPreview(item: RequestDataItem) {
 		try {
-			const docId = item._id;
+			const docId = item.id;
 			if (!id) {
 				message.error("Missing request ID");
 				return;
@@ -159,18 +149,63 @@ export default function RequestPage() {
 
 	async function deleteDocument(item: RequestDataItem) {
 		try {
-			const docId = item._id;
+			const docId = item.id;
 			if (!id) {
 				message.error("Missing request ID");
 				return;
 			}
 			await requestClient.deleteDoc({ docId, id });
 			message.success("Document deleted successfully!");
-			setTableData(prev => prev.filter((row) => row._id !== docId));
+			setTableData(prev => prev.filter((row) => row.id !== docId));
 		} catch (error) {
 			message.error("Failed to delete document");
 		}
 	}
+
+	async function showRejectionForm(item: RequestDataItem) {
+		setRejectionFormVisible(true);
+		setRejectingItem(item);
+		setRejectionReason('');
+	}
+
+	async function handleRejectDoc() {
+		console.log("req id : ", id);
+		if (!rejectionReason.trim()) return;
+
+		if (!id || !rejectingItem) {
+			message.error("Missing necessary information.");
+			return;
+		}
+
+		try {
+			const response = await requestClient.rejectDoc({
+				docId: rejectingItem.id,
+				reqId: id,
+				// userId: rejectingItem.userId,
+				reason: rejectionReason,
+			});
+
+			message.success("Document rejected successfully!");
+
+			setTableData(prev => prev.map(row => {
+				if (row.id === rejectingItem.id) {
+					return {
+						...row,
+						preview: <Tag color="red"  style={{padding: "5px 15px"}}>Rejected</Tag>,
+						action: <Button danger style={{marginRight: "10px"}}>Delete</Button>
+					};
+				}
+				return row;
+			}));
+
+			setRejectionFormVisible(false);
+			setRejectionReason('');
+			setRejectingItem(null);
+		} catch (error) {
+			message.error("Failed to reject document.");
+		}
+	}
+
 
 	const handleUpload = (file: File) => {
 		setUploadedFile(file);
@@ -302,6 +337,31 @@ export default function RequestPage() {
 					</Button>
 				</Form>
 			</Drawer>
+			<Modal
+				title="Reject Document"
+				open={rejectionFormVisible}
+				onCancel={() => {
+					setRejectionFormVisible(false);
+					setRejectionReason('');
+					setRejectingItem(null);
+				}}
+				onOk={handleRejectDoc}
+				okButtonProps={{ disabled: !rejectionReason.trim() }}
+				okText="Submit"
+				cancelText="Cancel"
+			>
+				<Form layout="vertical">
+					<Form.Item label="Rejection Reason" required>
+						<Input.TextArea
+							rows={4}
+							value={rejectionReason}
+							onChange={(e) => setRejectionReason(e.target.value)}
+							placeholder="Enter reason for rejection"
+						/>
+					</Form.Item>
+				</Form>
+			</Modal>
+
 		</MainAreaLayout>
 	);
 }

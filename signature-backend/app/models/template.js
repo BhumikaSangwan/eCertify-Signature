@@ -75,6 +75,10 @@ export const schema = new mongoose.Schema({
             type: String,
         },
     }],
+    'rejectedDocs': {
+        type: Number,
+        default: 0
+    },
     'assignedTo': {
         type: mongoose.Schema.Types.ObjectId,
     },
@@ -83,6 +87,9 @@ export const schema = new mongoose.Schema({
     },
     'signedBy': {
         type: mongoose.Schema.Types.ObjectId,
+    },
+    'signOtp' : {
+        type: String
     },
     'rejectionReason': {
         type: String,

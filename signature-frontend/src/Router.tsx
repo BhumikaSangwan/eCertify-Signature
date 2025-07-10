@@ -7,16 +7,18 @@ import Signatures from "./pages/Signatures.tsx";
 import { CourtManagement } from "./pages/CourtManagement.tsx";
 import { CourtUsers } from "./pages/CourtUsers.tsx";
 import RequestPage from "./pages/Request.tsx";
+import RejectedReqPage from "./pages/RejectedReq.tsx";
 import RedirectByRole from "./components/RedirectByRole/index.tsx";
-import { TemplatPreview } from "./pages/TemplatePreview.tsx";
 import RoleProtectedRoute from "./components/RoleProtectedRoute.tsx/index.tsx";
 import { roles } from "./libs/constants.ts";
 import { Users } from "./pages/Users.tsx";
+import CertificateDetails from "./pages/CertificateDetails"; 
 
 export function Router() {
 	return (
 		<Routes>
 			<Route path="/login" element={<Login />} />
+			<Route path="/viewDetails/:id/:docId" element={<CertificateDetails />} />
 			<Route path="/" element={<Dashboard />}>
 				<Route path="" element={<Navigate to="/dashboard" />} />
 				<Route path="/dashboard" element={<ProtectedRoute />}>
@@ -34,11 +36,15 @@ export function Router() {
 								path="request/:id"
 								element={<RequestPage />}
 							/>
+							<Route 
+								path="rejectedReq/:id"
+								element={<RejectedReqPage />}
+							/>
 							<Route path="signatures" element={<Signatures />} />
-							<Route
+							{/* <Route
 								path="template/:id"
 								element={<TemplatPreview />}
-							/>
+							/> */}
 						</Route>
 
 						<Route

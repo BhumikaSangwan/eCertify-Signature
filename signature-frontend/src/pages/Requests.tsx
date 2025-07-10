@@ -10,12 +10,17 @@ import {
 	Tag,
 	Flex,
 	Select,
+	Modal,
+	Row,
+	Col,
+	Card,
 } from "antd";
 import { UploadOutlined } from "@ant-design/icons";
 import CustomTable from "../components/CustomTable";
 import MainAreaLayout from "../components/main-layout/main-layout";
 import { courtClient, useAppStore, requestClient, userClient } from "../store";
 import { useNavigate } from "react-router-dom";
+import socket from "../client/socket";
 
 interface Request {
 	id: string;
@@ -27,8 +32,14 @@ interface Request {
 	officer: string;
 	assignedTo: string;
 	createdBy: string;
-	delegatedTo?: string | null;
+	delegatedTo: string | null;
+	_id?: string;
+	userId: string;
+	signStatus?: number;
+	key?: string;
+	description?: string;
 }
+
 
 const Requests: React.FC = () => {
 	const [requests, setRequests] = useState<Request[]>([]);
@@ -36,6 +47,7 @@ const Requests: React.FC = () => {
 	const [isDrawerOpen, setIsDrawerOpen] = useState(false);
 	const [loading, setLoading] = useState(false);
 	const [form] = Form.useForm();
+	const [otpForm] = Form.useForm();
 	const [currentRequest, setCurrentRequest] = useState<Request | null>(null);
 	const [, setCurrentPage] = useState<number>(1);
 	const [searchTerm, setSearchTerm] = useState("");
@@ -48,8 +60,133 @@ const Requests: React.FC = () => {
 	const [selectedDelegateRequestId, setSelectedDelegateRequestId] = useState<string | null>(null);
 	const [delegatableUsers, setDelegatableUsers] = useState<{ label: string; value: string }[]>([]);
 
+	const [showSignatureModal, setShowSignatureModal] = useState(false);
+	const [signatures, setSignatures] = useState<any[]>([]);
+	const [selectedSignatureId, setSelectedSignatureId] = useState<string | null>(null);
+
+	const [rejectionFormVisible, setRejectionFormVisible] = useState(false);
+	const [rejectionReason, setRejectionReason] = useState('');
+	const [rejectingRequest, setRejectingRequest] = useState<string>('');
+
+	const [showDispatchRegisterModal, setShowDispatchRegisterModal] = useState(false);
+	const [dispatchRegisterReqId, setDispatchRegisterReqId] = useState<string | null>(null);
+	const [dispatchRegisterNumber, setDispatchRegisterNumber] = useState<number | null>();
+
+	const [showOtpModal, setShowOtpModal] = useState(false);
+	const [otp, setOtp] = useState('');
+
+	const backendUrl = import.meta.env.VITE_BACKEND_URL;
 
 	const navigate = useNavigate();
+
+	useEffect(() => {
+		socket.on("newRequest", addNewRequest);
+		socket.on("signedReq", handleSignedReqStatus);
+		socket.on("progressReq", handleSigningReqStatus);
+		socket.on("rejectedReq", handleRejectedReqStatus);
+		socket.on("delegatedReq", handleDelegatedReqStatus);
+		socket.on("dispatchedReq", handleDispatchedReqStatus);
+
+		return () => {
+			socket.off("newRequest", addNewRequest);
+			socket.off("signedReq", handleSignedReqStatus);
+			socket.off("progressReq", handleSigningReqStatus);
+			socket.off("rejectedReq", handleRejectedReqStatus);
+			socket.off("delegatedReq", handleDelegatedReqStatus);
+			socket.off("dispatchedReq", handleDispatchedReqStatus);
+		};
+	}, []);
+
+	const handleDispatchedReqStatus = (reqId: string) => {
+		setRequests((prev) =>
+			prev.map((req) =>
+				req.id === reqId ? { ...req, reqStatus: 7 } : req
+			)
+		)
+
+		setFilteredRequests((prev) =>
+			prev.map((req) =>
+				req.id === reqId ? { ...req, reqStatus: 7 } : req
+			)
+		)
+	}
+
+	const handleDelegatedReqStatus = (reqId: string) => {
+		setRequests((prev) =>
+			prev.map((req) =>
+				req.id === reqId ? { ...req, reqStatus: 3 } : req
+			)
+		)
+
+		setFilteredRequests((prev) =>
+			prev.map((req) =>
+				req.id === reqId ? { ...req, reqStatus: 3 } : req
+			)
+		)
+	}
+
+	const handleRejectedReqStatus = (reqId: string) => {
+		setRequests((prev) =>
+			prev.map((req) =>
+				req.id === reqId ? { ...req, reqStatus: 2 } : req
+			)
+		)
+
+		setFilteredRequests((prev) =>
+			prev.map((req) =>
+				req.id === reqId ? { ...req, reqStatus: 2 } : req
+			)
+		)
+	}
+
+	const handleSignedReqStatus = (reqId: string) => {
+		setRequests((prev) =>
+			prev.map((req) =>
+				req.id === reqId ? { ...req, reqStatus: 5 } : req
+			)
+		)
+
+		setFilteredRequests((prev) =>
+			prev.map((req) =>
+				req.id === reqId ? { ...req, reqStatus: 5 } : req
+			)
+		);
+	}
+
+	const handleSigningReqStatus = (reqId: string) => {
+		setRequests((prev) =>
+			prev.map((req) =>
+				req.id === reqId ? { ...req, reqStatus: 4 } : req
+			)
+		)
+
+		setFilteredRequests((prev) =>
+			prev.map((req) =>
+				req.id === reqId ? { ...req, reqStatus: 4 } : req
+			)
+		);
+	}
+
+	const addNewRequest = (item: Request) => {
+		const newRequest: Request = {
+			userId: userId,
+			id: item.id,
+			key: item._id,
+			createdAt: item.createdAt,
+			title: item.description ?? "Untitled",
+			officer: item.officer,
+			totalDocs: item.totalDocs,
+			rejectedDocs: item.rejectedDocs,
+			reqStatus: item.signStatus ?? 0,
+			assignedTo: item.assignedTo,
+			createdBy: item.createdBy,
+			delegatedTo: item.delegatedTo,
+			_id: item._id,
+		};
+
+		setRequests((prev) => [newRequest, ...prev]);
+		setFilteredRequests((prev) => [newRequest, ...prev]);
+	};
 
 	const getOfficerList = async (currentUserId: string) => {
 		try {
@@ -69,7 +206,7 @@ const Requests: React.FC = () => {
 			const response = await requestClient.getRequests();
 			const formatted = response.map((item: any) => ({
 				userId: item.userId,
-				id: item._id,
+				id: item.id,
 				key: item._id,
 				title: item.description,
 				officer: item.officer,
@@ -124,18 +261,59 @@ const Requests: React.FC = () => {
 		}
 	};
 
-	const handleRejectReq = async (reqId: string) => {
+	const handleGetOtpReq = async () => {
 		try {
-			await requestClient.rejectRequest(reqId);
+			if (!selectedRequestId) return;
+			setShowSignatureModal(false);
+			setOtp('')
+			otpForm.resetFields();
+			const res = await requestClient.getOtpReq(selectedRequestId);
+			console.log("res : ", res);
+			setShowOtpModal(true);
+		} catch (error) {
+			console.log("error in otp request : ", error);
+		}
+	}
+
+	// const handleShowOtpModal = async () => {
+	// 	setShowOtpModal(true);
+	// 	setOtp('');
+	// }
+
+	const handleVerifyOtpRequest = async () => {
+		try {
+			const values = await otpForm.validateFields();
+			const otpValue = values.otp;
+			if (!selectedRequestId) return;
+			setShowOtpModal(false);
+			const res = await requestClient.sendOtp({ reqId: selectedRequestId, otp: otpValue });
+			setOtp('')
+			console.log("res : ", res);
+			handleSign();
+		} catch (error) {
+			console.log("error in otp request : ", error);
+			message.error(`${error}`);
+		}
+	}
+
+	const showRejectionForm = (reqId: string) => {
+		setRejectionFormVisible(true);
+		setRejectingRequest(reqId);
+		setRejectionReason("");
+	};
+
+	const handleRejectReq = async (rejectionReason: string) => {
+		try {
+			await requestClient.rejectRequest({ rejectionReason, reqId: rejectingRequest });
 			setRequests((prev) =>
 				prev.map((req) =>
-					req.id === reqId ? { ...req, reqStatus: 2 } : req
+					req.id === rejectingRequest ? { ...req, reqStatus: 2 } : req
 				)
 			);
 
 			setFilteredRequests((prev) =>
 				prev.map((req) =>
-					req.id === reqId ? { ...req, reqStatus: 2 } : req
+					req.id === rejectingRequest ? { ...req, reqStatus: 2 } : req
 				)
 			);
 			message.success("Request rejected");
@@ -164,20 +342,6 @@ const Requests: React.FC = () => {
 			message.error("Failed to dispatch the request");
 		}
 	}
-
-	// const handleUpdateRequest = async (id: string) => {
-	// 	try {
-	// 		const values = await form.validateFields();
-	// 		await requestClient.updateRequest(id, values);
-	// 		message.success("Request updated");
-	// 		setIsDrawerOpen(false);
-	// 		form.resetFields();
-	// 		setCurrentRequest(null);
-	// 		fetchRequests();
-	// 	} catch (error) {
-	// 		message.error("Update failed");
-	// 	}
-	// };
 
 	const handleTemplateReq = async (id: string) => {
 		try {
@@ -218,17 +382,6 @@ const Requests: React.FC = () => {
 		}
 	};
 
-	// const getDelegatableOfficers = async (OfficerId: string, requestId: string) => {
-	// 	try {
-	// 		await requestClient.getDelegatableOfficers(OfficerId, requestId);
-	// 		setSelectedRequestId(null);
-	// 		fetchRequests();
-	// 	} catch (error) {
-	// 		console.error("Error fetching delegatable officers:", error);
-	// 		message.error("Failed to fetch delegatable officers");
-	// 	}
-	// }
-
 	const fetchDelegatableOfficers = async (officerId: string, readerId: string) => {
 		try {
 			const response = await userClient.getDelegatableOfficers(officerId, readerId);
@@ -244,18 +397,6 @@ const Requests: React.FC = () => {
 			message.error("Unable to load delegation options.");
 		}
 	};
-
-	// const handleDelegateRequest = async (officerId: string, requestId: string) => {
-	// 	try {
-	// 		await requestClient.delegateRequest({ officerId, requestId });
-	// 		message.success("Request delegated successfully");
-	// 		setSelectedDelegateRequestId(null);
-	// 		fetchRequests();
-	// 	} catch (error) {
-	// 		console.error("Error delegating request:", error);
-	// 		message.error("Failed to delegate request");
-	// 	}
-	// };
 
 
 	const handleDelegateRequest = async ({
@@ -337,6 +478,34 @@ const Requests: React.FC = () => {
 		}
 	};
 
+	const handleShowSignatureModal = async (reqId: string) => {
+		try {
+			setSelectedRequestId(reqId);
+			const result = await requestClient.getSignatures(userId);
+			setSignatures(result);
+			setSelectedSignatureId(null);
+			setShowSignatureModal(true);
+		} catch (err) {
+			message.error("Failed to fetch signatures");
+		}
+	};
+
+	const handleSign = async () => {
+		if (!selectedSignatureId || !selectedRequestId) return;
+		try {
+			await requestClient.signRequest({
+				requestId: selectedRequestId,
+				signatureId: selectedSignatureId,
+				signedBy: userId
+			});
+			setShowSignatureModal(false);
+			setSelectedSignatureId(null);
+			fetchRequests();
+		} catch (err) {
+			message.error("Failed to sign request");
+		}
+	};
+
 	const handleDownloadAll = async (reqId: string) => {
 		try {
 			const blob = await requestClient.downloadAllDocs(reqId);
@@ -354,6 +523,44 @@ const Requests: React.FC = () => {
 			message.error("Failed to download all documents");
 		}
 	};
+
+	const handleDispatchRegisterReq = async () => {
+		try {
+			if (!dispatchRegisterReqId) {
+				message.error("Please select a request to register");
+				return;
+			}
+			if (!dispatchRegisterNumber || dispatchRegisterNumber < 1) {
+				message.error("Please enter a valid register number");
+				return;
+			}
+			const result = await requestClient.dispatchRegister({ reqId: dispatchRegisterReqId, registerNumber: dispatchRegisterNumber });
+			console.log("result : ", result);
+			setDispatchRegisterReqId(null);
+			setDispatchRegisterNumber(null);
+		} catch (error) {
+			console.log("error in dispatch register : ", error);
+		}
+	}
+
+	const showDispatchRegister = async (reqId: string) => {
+		try {
+			setShowDispatchRegisterModal(true);
+			setDispatchRegisterReqId(reqId);
+			setDispatchRegisterNumber(null);
+		} catch (error) {
+			console.log("error in show dispatch register : ", error);
+		}
+	}
+
+	const handleDispatchSlip = async (reqId: string) => {
+		try {
+			const res = await requestClient.getDispatchSlip(reqId);
+			console.log("res : ", res);
+		} catch (error) {
+			console.log("error in dispatch slip : ", error);
+		}
+	}
 
 	useEffect(() => {
 		const runInit = async () => {
@@ -402,7 +609,19 @@ const Requests: React.FC = () => {
 				</span>
 			),
 		},
-		{ title: "Rejected Docs", dataIndex: "rejectedDocs", key: "rejectedDocs" },
+		{
+			title: "Rejected Docs",
+			dataIndex: "rejectedDocs",
+			key: "rejectedDocs",
+			render: (text: number, record: Request) => (
+				<span
+					style={{ color: "#1677ff", cursor: "pointer" }}
+					onClick={() => navigate(`/dashboard/rejectedReq/${record.id}`)}
+				>
+					{text}
+				</span>
+			)
+		},
 		{
 			title: "Status",
 			dataIndex: "reqStatus",
@@ -448,8 +667,35 @@ const Requests: React.FC = () => {
 				const isAssignedToUser = record.assignedTo === userId;
 				const isDelegatedToUser = record.delegatedTo === userId;
 
+				if (status === 4) {
+					return (
+						<Flex justify="center" wrap="wrap" gap={6}>
+							<Button
+								disabled
+								style={{
+									minWidth: 120,
+									backgroundColor: "gray",
+									color: "white",
+								}}
+							>
+								In Process
+							</Button>
+
+							{record.createdBy == userId && (
+								<Button
+									style={{ minWidth: 120 }}
+									type="primary"
+									onClick={() => handleClone(reqId)}
+								>
+									Clone
+								</Button>
+							)}
+
+						</Flex>
+					)
+				}
 				// Case 1: Assigned officer, but delegated to someone else
-				if (isAssignedToUser && record.delegatedTo && record.delegatedTo !== userId) {
+				else if (isAssignedToUser && record.delegatedTo && record.delegatedTo !== userId) {
 					return (
 						<Flex justify="center" wrap="wrap" gap={6}>
 							<Button disabled ghost style={{ minWidth: 120 }}>
@@ -461,7 +707,7 @@ const Requests: React.FC = () => {
 
 
 				// Case 2: User is the delegate (can sign)
-				if (isDelegatedToUser) {
+				else if (isDelegatedToUser) {
 					if (record.createdBy !== userId) {
 						return (
 							<Flex justify="center" wrap="wrap" gap={6}>
@@ -470,20 +716,41 @@ const Requests: React.FC = () => {
 										<Button
 											style={{ minWidth: 120 }}
 											type="primary"
-											onClick={() =>
-												navigate("/dashboard/signatures", {
-													state: { requestId: reqId, userId },
-												})
-											}
+											// onClick={() =>
+											// 	navigate("/dashboard/signatures", {
+											// 		state: { requestId: reqId, userId },
+											// 	})
+											// }
+											onClick={() => {
+												handleShowSignatureModal(reqId);
+											}}
 										>
 											Sign
 										</Button>
 										<Button
 											danger
 											style={{ minWidth: 120 }}
-											onClick={() => handleRejectReq(reqId)}
+											onClick={() => showRejectionForm(reqId)}
 										>
 											Reject
+										</Button>
+									</>
+								)}
+								{(status === 5 || status === 7) && (
+									<>
+										<Button
+											style={{ minWidth: 120 }}
+											type="primary"
+											onClick={() => handlePrintAll(reqId)}
+										>
+											Print
+										</Button>
+										<Button
+											style={{ minWidth: 120 }}
+											type="primary"
+											onClick={() => handleDownloadAll(reqId)}
+										>
+											Download All
 										</Button>
 									</>
 								)}
@@ -492,7 +759,6 @@ const Requests: React.FC = () => {
 										style={{
 											minWidth: 120,
 											backgroundColor: "green",
-											borderColor: "green",
 											color: "white",
 										}}
 										onClick={() => handleDispatchReq(reqId)}
@@ -501,15 +767,29 @@ const Requests: React.FC = () => {
 									</Button>
 								)}
 								{(status === 7) && (
-									<Button disabled ghost style={{ minWidth: 120 }}>
-										Dispatched
-									</Button>
+									<>
+										<Button
+											style={{ minWidth: 120 }}
+											type="primary"
+											onClick={() => showDispatchRegister(reqId)}
+										>
+											Dispatch Register
+										</Button>
+										<Button
+											style={{ minWidth: 120 }}
+											type="primary"
+											onClick={() => showDispatchRegister(reqId)}
+										>
+											Dispatch Slip
+										</Button>
+									</>
 								)}
 								{status === 2 && (
 									<Button disabled danger style={{ minWidth: 120 }}>
 										Rejected
 									</Button>
 								)}
+
 							</Flex>
 						)
 					}
@@ -526,11 +806,9 @@ const Requests: React.FC = () => {
 								<Button
 									style={{ minWidth: 120 }}
 									type="primary"
-									onClick={() =>
-										navigate("/dashboard/signatures", {
-											state: { requestId: reqId, userId },
-										})
-									}
+									onClick={() => {
+										handleShowSignatureModal(reqId);
+									}}
 								>
 									Sign
 								</Button>
@@ -553,17 +831,46 @@ const Requests: React.FC = () => {
 									</Button>
 								</>
 							)}
+							{(status === 7) && (
+								<>
+									<Button
+										style={{ minWidth: 120 }}
+										type="primary"
+										onClick={() => showDispatchRegister(reqId)}
+									>
+										Dispatch Register
+									</Button>
+									<Button
+										style={{ minWidth: 120 }}
+										type="primary"
+										onClick={() => handleDispatchSlip(reqId)}
+									>
+										Dispatch Slip
+									</Button>
+								</>
+							)}
 						</Flex>
 					);
 				}
 
-				// ✅ Case 3: Assigned officer and not delegated (can act)
-				if (isAssignedToUser && (!record.delegatedTo || record.delegatedTo === userId)) {
+				//  Case 3: Assigned officer and not delegated (can act)
+				else if (isAssignedToUser && (!record.delegatedTo || record.delegatedTo === userId)) {
 					return (
 						<Flex justify="center" wrap="wrap" gap={6}>
-							{status === 3 && (
+							{/* {status === 3 && (
 								<Button disabled ghost style={{ minWidth: 120 }}>
 									Delegated
+								</Button>
+							)} */}
+							{(status === 3) && (
+								<Button
+									style={{ minWidth: 120 }}
+									type="primary"
+									onClick={() => {
+										handleShowSignatureModal(reqId);
+									}}
+								>
+									Sign
 								</Button>
 							)}
 
@@ -572,18 +879,16 @@ const Requests: React.FC = () => {
 									<Button
 										style={{ minWidth: 120 }}
 										type="primary"
-										onClick={() =>
-											navigate("/dashboard/signatures", {
-												state: { requestId: reqId, userId },
-											})
-										}
+										onClick={() => {
+											handleShowSignatureModal(reqId);
+										}}
 									>
 										Sign
 									</Button>
 									<Button
 										danger
 										style={{ minWidth: 120 }}
-										onClick={() => handleRejectReq(reqId)}
+										onClick={() => showRejectionForm(reqId)}
 									>
 										Reject
 									</Button>
@@ -615,6 +920,26 @@ const Requests: React.FC = () => {
 											autoFocus
 										/>
 									)}
+
+								</>
+							)}
+
+							{(status === 7 || status === 5) && (
+								<>
+									<Button
+										style={{ minWidth: 120 }}
+										type="primary"
+										onClick={() => handlePrintAll(reqId)}
+									>
+										Print
+									</Button>
+									<Button
+										style={{ minWidth: 120 }}
+										type="primary"
+										onClick={() => handleDownloadAll(reqId)}
+									>
+										Download All
+									</Button>
 								</>
 							)}
 
@@ -623,7 +948,6 @@ const Requests: React.FC = () => {
 									style={{
 										minWidth: 120,
 										backgroundColor: "green",
-										borderColor: "green",
 										color: "white",
 									}}
 									onClick={() => handleDispatchReq(reqId)}
@@ -632,10 +956,23 @@ const Requests: React.FC = () => {
 								</Button>
 							)}
 
-							{status === 7 && (
-								<Button disabled ghost style={{ minWidth: 120 }}>
-									Dispatched
-								</Button>
+							{(status === 7) && (
+								<>
+									<Button
+										type="primary"
+										style={{ minWidth: 120 }}
+										onClick={() => showDispatchRegister(reqId)}
+									>
+										Dispatch Register
+									</Button>
+									<Button
+										style={{ minWidth: 120 }}
+										type="primary"
+										onClick={() => handleDispatchSlip(reqId)}
+									>
+										Dispatch Slip
+									</Button>
+								</>
 							)}
 
 							{status === 2 && (
@@ -647,7 +984,7 @@ const Requests: React.FC = () => {
 					);
 				}
 
-				// ✅ Case 4: Everyone else (e.g., reader only)
+				//  Case 4: Everyone else (e.g., reader only)
 				return (
 					<Flex justify="center" wrap="wrap" gap={6}>
 						<Button
@@ -679,7 +1016,7 @@ const Requests: React.FC = () => {
 							/>
 						)}
 
-						{(status === 7 ) && (
+						{(status === 7 || status === 5) && (
 							<>
 								<Button
 									style={{ minWidth: 120 }}
@@ -698,6 +1035,38 @@ const Requests: React.FC = () => {
 							</>
 						)}
 
+						{(status === 7) && (
+							<>
+								<Button
+									style={{ minWidth: 120 }}
+									type="primary"
+									onClick={() => showDispatchRegister(reqId)}
+								>
+									Dispatch Register
+								</Button>
+								<Button
+									style={{ minWidth: 120 }}
+									type="primary"
+									onClick={() => handleDispatchSlip(reqId)}
+								>
+									Dispatch Slip
+								</Button>
+							</>
+						)}
+
+						{status === 5 && (
+							<Button
+								style={{
+									minWidth: 120,
+									backgroundColor: "green",
+									color: "white",
+								}}
+								onClick={() => handleDispatchReq(reqId)}
+							>
+								Dispatch
+							</Button>
+						)}
+
 						{status === 4 && (
 							<Button
 								disabled
@@ -712,7 +1081,7 @@ const Requests: React.FC = () => {
 							</Button>
 						)}
 
-						{(status === 0 || status === 2) && (
+						{(status === 0) && (
 							<Popconfirm
 								title="Delete this request?"
 								onConfirm={() => handleDeleteRequest(reqId)}
@@ -721,6 +1090,12 @@ const Requests: React.FC = () => {
 									Delete
 								</Button>
 							</Popconfirm>
+						)}
+
+						{(status === 2) && (
+							<Button disabled danger style={{ minWidth: 120 }}>
+								Rejected
+							</Button>
 						)}
 					</Flex>
 				);
@@ -765,7 +1140,12 @@ const Requests: React.FC = () => {
 				placement="right"
 				width={400}
 				open={isDrawerOpen}
-				onClose={() => setIsDrawerOpen(false)}
+				onClose={() => {
+					setIsDrawerOpen(false)
+					setFileList([]);
+					setUploadedFile(null);
+				}
+				}
 			>
 				<Form layout="vertical" form={form}>
 					<Form.Item label="Title" name="title" rules={[{ required: true }]}>
@@ -791,15 +1171,167 @@ const Requests: React.FC = () => {
 						block
 						loading={loading}
 						onClick={() =>
-							currentRequest
-								? handleUpdateRequest(currentRequest.id)
-								: handleCreateRequest()
+							// currentRequest ?
+							// 	handleUpdateRequest(currentRequest.id) : 
+							handleCreateRequest()
 						}
 					>
 						{currentRequest ? "Update Request" : "Create Request"}
 					</Button>
 				</Form>
 			</Drawer>
+
+			<Modal
+				open={showSignatureModal}
+				title="Select Signature"
+				onCancel={() => {
+					setShowSignatureModal(false)
+					setSelectedSignatureId(null);
+				}
+				}
+				footer={null}
+				width={800}
+			>
+				<Flex justify="space-between" align="center" style={{ marginBottom: 16 }}>
+					<h3 style={{ margin: 0 }}></h3>
+					<Button type="primary" onClick={() => navigate("/dashboard/signatures")}>+ Add Signature</Button>
+				</Flex>
+
+				<Row gutter={[16, 16]}>
+					{signatures.map((sig: any) => (
+						<Col key={sig.id} xs={24} sm={12} md={8}>
+							<Card
+								hoverable
+								onClick={() => setSelectedSignatureId(sig.id)}
+								style={{
+									border: selectedSignatureId === sig.id ? "2px solid #1890ff" : undefined,
+									textAlign: "center",
+									cursor: "pointer",
+								}}
+								cover={
+									<img
+										alt="Signature"
+										src={`${backendUrl}/${sig.url}`}
+										style={{ height: 100, objectFit: "contain", padding: 10 }}
+									/>
+								}
+							>
+								{/* <Card.Meta title={item.name || "Unnamed Signature"} /> */}
+							</Card>
+						</Col>
+					))}
+				</Row>
+
+				<Button
+					type="primary"
+					disabled={!selectedSignatureId}
+					// onClick={handleSign}
+					// onClick={handleShowOtpModal}
+					onClick={handleGetOtpReq}
+					style={{ marginTop: 24, width: "100%" }}
+				>
+					Sign
+				</Button>
+			</Modal>
+
+			<Modal
+				open={showOtpModal}
+				title="Enter OTP"
+				onCancel={() => {
+					setShowOtpModal(false)
+					setOtp('');
+				}}
+				footer={null}
+				width={400}
+			>
+
+				<Form layout="vertical" form={otpForm}>
+					<Form.Item label="OTP" name="otp" rules={[{ required: true }]}>
+						<Input placeholder="Enter OTP" value={otp} onChange={(e) => setOtp(e.target.value)} />
+					</Form.Item>
+					<Button
+						type="primary"
+						loading={loading}
+						disabled={!otp}
+						onClick={handleVerifyOtpRequest}
+						style={{ width: "100%" }}
+					>
+						Verify OTP
+					</Button>
+				</Form>
+
+
+			</Modal>
+
+			<Modal
+				title="Reject Document"
+				open={rejectionFormVisible}
+				onCancel={() => {
+					setRejectionFormVisible(false);
+					setRejectionReason('');
+					setRejectingRequest("");
+				}}
+				onOk={() => {
+					handleRejectReq(rejectionReason)
+					setRejectionFormVisible(false);
+					setRejectionReason('');
+					setRejectingRequest("");
+				}}
+				okButtonProps={{ disabled: !rejectionReason.trim() }}
+				okText="Submit"
+				cancelText="Cancel"
+			>
+				<Form layout="vertical" form={form}>
+					<Form.Item label="Rejection Reason" required>
+						<Input.TextArea
+							rows={4}
+							value={rejectionReason}
+							onChange={(e) => setRejectionReason(e.target.value)}
+							placeholder="Enter reason for rejection"
+						/>
+					</Form.Item>
+				</Form>
+			</Modal>
+
+			<Modal
+				title="Dispatch Register"
+				open={showDispatchRegisterModal}
+				onCancel={() => {
+					setShowDispatchRegisterModal(false);
+					setDispatchRegisterReqId("");
+				}}
+				onOk={() => {
+					handleDispatchRegisterReq();
+					setShowDispatchRegisterModal(false);
+				}}
+				okButtonProps={{ disabled: !dispatchRegisterReqId }}
+				okText="Submit"
+				cancelText="Cancel"
+			>
+				<Form layout="vertical" form={form}>
+					<Form.Item label="Certificates dispatch number" required>
+						<Input
+							value={dispatchRegisterNumber ?? ""}
+							onChange={(e) => {
+								const value = e.target.value.trim();
+
+								if (/^\d+$/.test(value)) {
+									const number = parseInt(value, 10);
+									if (number > 0) {
+										setDispatchRegisterNumber(number);
+									} else {
+										setDispatchRegisterNumber(null);
+									}
+								} else {
+									setDispatchRegisterNumber(null);
+								}
+							}}
+							placeholder="Enter dispatch register number starting from"
+						/>
+					</Form.Item>
+				</Form>
+			</Modal>
+
 		</MainAreaLayout>
 	);
 };

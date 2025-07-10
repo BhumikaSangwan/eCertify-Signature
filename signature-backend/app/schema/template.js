@@ -33,9 +33,11 @@ export const TemplateSchema = zod.object({
             rejectionReason: zod.string().optional(),
         })
     ).optional(),
+    rejectedDocs: zod.number(),
     assignedTo: objectId.optional(),
     signatureId: objectId.optional(),
     signedBy: objectId.optional(),
+    signOtp: zod.string().optional(),
     rejectionReason: zod.string().optional(),
     delegationReason: zod.string().optional(),
     delegatedTo: objectId.optional(),

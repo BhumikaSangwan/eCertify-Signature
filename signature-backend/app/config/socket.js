@@ -21,14 +21,24 @@ export function createSocketServer(server) {
     });
 
     io.on("connection", (socket) => {
+
         if (!socket.request.session.userId) {
             return socket.disconnect();
         }
+
         socket.join(socket.request.session.userId);
+
+
     });
 
     return io;
 }
 
 
-export default { io };
+// export default { io };
+export function getIO() {
+    if (!io) {
+        throw new Error("Socket.io not initialized");
+    }
+    return io;
+}

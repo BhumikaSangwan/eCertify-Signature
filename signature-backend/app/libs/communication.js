@@ -12,9 +12,19 @@ const transporter = nodemailer.createTransport({
 
 
 export const sendNewUserEmail = (email, password) => {
-    const message = `Please use Email: ${email} and password: ${password} for login.`;
+    const message = `Please use Email: ${email} and password: ${password} for eCertify Signature login.`;
     transporter.sendMail({
         subject: "New Account",
+        text: message,
+        to: email,
+        from: process.env.EMAIL_AUTH_USER
+    })
+}
+
+export const sendSignatureOtp = (email, otp) => {
+    const message = `Please use OTP: ${otp} for signing your eCertify Signature.`;
+    transporter.sendMail({
+        subject: "Signature OTP",
         text: message,
         to: email,
         from: process.env.EMAIL_AUTH_USER
