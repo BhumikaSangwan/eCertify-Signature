@@ -35,7 +35,7 @@ export class RequestClient extends Client {
 	}
 
 	async getRequest(id: string) {
-		const res = await this.request("GET", `/api/templates/${id}`);
+		const res = await this.request("GET", `/api/templates/getReqDocs/${id}`);
 		return res.data;
 	}
 

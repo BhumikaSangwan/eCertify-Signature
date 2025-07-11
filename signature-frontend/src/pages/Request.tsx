@@ -18,6 +18,7 @@ import MainAreaLayout from "../components/main-layout/main-layout";
 import { requestClient } from "../store";
 import type { ColumnsType } from 'antd/es/table';
 import { Modal } from "antd";
+import { useAppStore } from "../store";
 
 
 
@@ -34,8 +35,6 @@ interface RequestDataItem {
 export default function RequestPage() {
 	const [isDrawerOpen, setIsDrawerOpen] = useState(false);
 	const [loading, setLoading] = useState(false);
-	const [requests, setRequests] = useState<Request[]>([]);
-	const [filteredRequests, setFilteredRequests] = useState<Request[]>([]);
 	const [form] = Form.useForm();
 	const [uploadedFile, setUploadedFile] = useState<File | null>(null);
 	const [currentRequest, setCurrentRequest] = useState<Request | null>(null);
@@ -47,14 +46,35 @@ export default function RequestPage() {
 	const [rejectionFormVisible, setRejectionFormVisible] = useState(false);
 	const [rejectionReason, setRejectionReason] = useState('');
 	const [rejectingItem, setRejectingItem] = useState<RequestDataItem | null>(null);
+	const [userId, setUserId] = useState<string>('');
+	const [createdBy, setCreatedBy] = useState<string>('');
+	const [signStatus, setSignStatus] = useState<number>(0);
 
+	useEffect(() => {
+			const runInit = async () => {
+				await useAppStore.getState().init();
+				const session = useAppStore.getState().session;
+	
+				if (!session?.userId || !session?.role) {
+					message.error("Failed to fetch session data.");
+					return;
+				}
+	
+				setUserId(session.userId);
+			};
+	
+			runInit();
+		}, []);
 
 	const fetchRequest = async (id: string) => {
 		try {
 			setLoading(true);
 			const result = await requestClient.getRequest(id);
+			console.log("req result : ", result);
 			setCurrentRequest(result);
 			setRequestName(result.description || "Document Management");
+			setCreatedBy(result.createdBy);
+			setSignStatus(result.signStatus)
 			const dataArray = result.data || [];
 
 			const dynamicKeysSet = new Set<string>();
@@ -237,10 +257,6 @@ export default function RequestPage() {
 		}
 	}
 
-	const handleUpdateRequest = async (id: string) => {
-
-	};
-
 	const handleCreateRequest = async () => {
 		let result;
 		try {
@@ -288,6 +304,7 @@ export default function RequestPage() {
 			title={requestName}
 			extra={
 				<Flex gap={12}>
+					{ userId == createdBy && signStatus == 0 &&
 					<Button
 						type="primary"
 						onClick={() => setIsDrawerOpen(true)}
@@ -295,6 +312,7 @@ export default function RequestPage() {
 					>
 						Upload File
 					</Button>
+			}
 					<Button
 						type="primary"
 						onClick={() => handleDownloadTemplate()}

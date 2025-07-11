@@ -128,7 +128,21 @@ router.post("/getOtpReq/:id", async (req, res) => {
 		const otp = generateOtp(6).toString();
 		const encryptedOtp = await bcryptPass(otp)
 		request.signOtp = encryptedOtp;
+		request.otpGeneratedAt = Date.now();
 		await request.save();
+
+		// Auto-clear OTP after 10 minutes
+		setTimeout(async () => {					
+			const doc = await TemplateModel.findOne({ id: reqId });
+			if (!doc) return;
+
+			const elapsed = Date.now() - new Date(doc.otpGeneratedAt).getTime();
+			if (elapsed >= 10 * 60 * 1000) {
+				doc.signOtp = '';
+				doc.otpGeneratedAt = null;
+				await doc.save();
+			}
+		}, 10 * 60 * 1000);
 
 		const userId = request?.delegatedTo || request.assignedTo;
 		const user = await userModel.findOne({ id: userId, status: { $ne: status.deleted } });
@@ -146,8 +160,12 @@ router.post("/verifyOtp", async (req, res) => {
 	try {
 		const { reqId, otp } = req.body;
 		const request = await TemplateModel.findOne({ id: reqId, status: { $ne: status.deleted } });
-		if(!request){
+		if (!request) {
 			return res.status(404).json({ error: "Request not found" });
+		}
+		const isExpired = Date.now() - new Date(request.otpGeneratedAt).getTime() > 10 * 60 * 1000;
+		if (isExpired) {
+			return res.status(400).json({ error: "OTP has expired. Please request a new one." });
 		}
 		const originalOtp = request.signOtp;
 		const validOtp = await compareBcrypt(originalOtp, otp.toString());
@@ -185,15 +203,15 @@ router.post("/signRequest", async (req, res) => {
 		template.status = status.active;
 		template.signatureId = signatureId;
 		template.signedDate = new Date();
-		
+
 		await template.save();
 		const io = getIO();
 
 		io.emit("progressReq", template.id);
 
 		const certDir = path.join("uploads", "certificates", template.id.toString());
-		
-		 addRequestToQueue(template, signatureImageUrl, certDir);
+
+		addRequestToQueue(template, signatureImageUrl, certDir);
 
 		res.status(200).json({ message: "Request signed successfully", data: template });
 	} catch (error) {

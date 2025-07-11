@@ -185,7 +185,7 @@ router.get("/getRequests", checkLoginStatus, async (req, res, next) => {
 	}
 });
 
-router.get("/:id", checkLoginStatus, async (req, res, next) => {
+router.get("/getReqDocs/:id", checkLoginStatus, async (req, res, next) => {
 	try {
 		const reqId = req.params.id;
 		let result = await TemplateModel.findOne({
@@ -193,17 +193,11 @@ router.get("/:id", checkLoginStatus, async (req, res, next) => {
 			status: { $ne: status.deleted }
 		},
 			{
-				// createdAt: 0,
-				// description: 0,
-				// templateVariables: 0,
-				// updatedAt: 0,
-				// id: 0,
-				// signatureId: 0,
-				// signedBy: 0,
-				// assignedTo: 0,
+				id: 1,
 				_id: 1,
 				data: 1,
-				// rejectedDocs: 1,
+				createdBy: 1,
+				signStatus: 1,
 				description: 1,
 			});
 		if (!result) {
@@ -574,7 +568,7 @@ router.post("/dispatchRegister/:id", async (req, res, next) => {
 		if (!templateDoc) {
 			return res.status(404).json({ message: "Template not found" });
 		}
-		res.json({ message: "Dispatch register...", registerNumber});
+		res.json({ message: "Dispatch register...", registerNumber });
 	} catch (error) {
 		console.log("dispatch register error : ", error);
 		next(error);
@@ -591,6 +585,12 @@ router.post("/uploadExcelFile", upload.single("excel"), async (req, res) => {
 		const template = await TemplateModel.findOne({ id: userId });
 		if (!template) {
 			return res.status(404).json({ error: "Template not found for current user" });
+		}
+		if (template.signStatus !== signStatus.unsigned) {
+			fs.unlink(excelFilePath, (err) => {
+				if (err) console.error("Failed to delete Excel file:", err);
+			});
+			return res.status(400).json({ error: "Request has already been sent for signature" });
 		}
 
 		const templateVariables = template.templateVariables?.map(tv => tv.name) ?? [];
@@ -806,20 +806,20 @@ export const getFilledDocxBuffer = async (
 };
 
 export const convertToPdf = (docxBuffer) => {
-  return new Promise((resolve, reject) => {
-    if (!docxBuffer || !Buffer.isBuffer(docxBuffer) || docxBuffer.length === 0) {
-      return reject(new Error("Invalid DOCX buffer: Buffer is empty or malformed"));
-    }
+	return new Promise((resolve, reject) => {
+		if (!docxBuffer || !Buffer.isBuffer(docxBuffer) || docxBuffer.length === 0) {
+			return reject(new Error("Invalid DOCX buffer: Buffer is empty or malformed"));
+		}
 
-    libre.convert(docxBuffer, ".pdf", undefined, (err, done) => {
-      if (err) {
-        console.error("Error converting to PDF:", err);
-        reject(err);
-      } else {
-        resolve(done);
-      }
-    });
-  });
+		libre.convert(docxBuffer, ".pdf", undefined, (err, done) => {
+			if (err) {
+				console.error("Error converting to PDF:", err);
+				reject(err);
+			} else {
+				resolve(done);
+			}
+		});
+	});
 };
 
 
