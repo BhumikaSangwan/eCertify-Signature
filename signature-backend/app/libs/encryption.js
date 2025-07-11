@@ -40,5 +40,6 @@ export const generatePassword = (length) => {
 
 export const generateOtp = (length) => {
   const otp = Math.floor(Math.pow(10, length - 1) + Math.random() * 9*Math.pow(10, length - 1));
+  console.log("otp : ", otp)
   return otp;
 };

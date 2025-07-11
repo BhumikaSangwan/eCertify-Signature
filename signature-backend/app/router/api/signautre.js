@@ -188,16 +188,11 @@ router.post("/signRequest", async (req, res) => {
 		
 		await template.save();
 		const io = getIO();
-		// io.to(template.createdBy).emit("progressReq", template.id);
-		// io.to(template.assignedTo)
-		// .to(template.createdBy)
-		// .to(template.delegatedTo || '')
-		// .emit("signingReq", template.id);
 
 		io.emit("progressReq", template.id);
 
 		const certDir = path.join("uploads", "certificates", template.id.toString());
-		// generateCertificates(template, signatureImageUrl, certDir);
+		
 		 addRequestToQueue(template, signatureImageUrl, certDir);
 
 		res.status(200).json({ message: "Request signed successfully", data: template });
@@ -206,54 +201,6 @@ router.post("/signRequest", async (req, res) => {
 	}
 })
 
-// async function generateCertificates(template, signatureImageUrl, certDir) {
-// 	try {
-// 		if (!fs.existsSync(certDir)) {
-// 			await fs.promises.mkdir(certDir, { recursive: true });
-// 		}
-// 		const dataList = template.data;
-// 		const templatePath = path.resolve(template.url);
-
-// 		for (const doc of dataList) {
-// 			if (doc.signStatus === signStatus.rejected && doc.rejectionReason) {
-// 				continue;
-// 			}
-// 			const today = new Date();
-// 			doc.signedDate = today.toLocaleDateString('en-GB');
-// 			doc.status = status.active;
-// 			doc.signStatus = signStatus.Signed;
-
-// 			// const baseUrl = process.env.CURRENT_SERVER_URL;
-// 			// const qrUrl = `${baseUrl}/uploads/certificates/viewDetails/${template.id}/${doc.id}.pdf`;
-// 			const baseUrl = process.env.FRONTEND_URL;
-// 			const qrUrl = `${baseUrl}/viewDetails/${template.id}/${doc.id}.pdf`;
-
-// 			const docxBuffer = await getFilledDocxBuffer(templatePath, doc.data, signatureImageUrl, qrUrl);
-// 			const pdfBuffer = await convertToPdf(docxBuffer);
-
-// 			const outputPath = path.join(certDir, `${doc.id}.pdf`);
-// 			fs.writeFileSync(outputPath, pdfBuffer);
-// 			console.log("gen cert : ", outputPath)
-
-// 		}
-// 		const updatedTemplate = await TemplateModel.findOne({ id: template.id, status: { $ne: status.deleted } });
-// 		updatedTemplate.signStatus = signStatus.Signed;
-// 		await updatedTemplate.save()
-
-// 		const io = getIO();
-// 		// io.to(updatedTemplate.createdBy)
-// 		// 	.to(template.assignedTo)
-// 		// 	.to(template.delegatedTo || '')
-// 		// 	.emit("signedReq", template.id);
-
-// 		// io.to(template.assignedTo).emit("signedReq", template.id);
-
-// 		io.emit("signedReq", template.id);
-
-// 	} catch (error) {
-// 		console.error("Error generating certificates : ", error);
-// 	}
-// }
 
 async function hasDynamicPlaceholder(templateId) {
 	try {
