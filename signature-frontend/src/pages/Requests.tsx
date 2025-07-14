@@ -38,8 +38,13 @@ interface Request {
 	signStatus?: number;
 	key?: string;
 	description?: string;
+	signedDocs?: number;
 }
 
+interface DocumentProgressProps {
+	signedDocs: number;
+	totalDocs: number;
+}
 
 const Requests: React.FC = () => {
 	const [requests, setRequests] = useState<Request[]>([]);
@@ -86,6 +91,7 @@ const Requests: React.FC = () => {
 		socket.on("rejectedReq", handleRejectedReqStatus);
 		socket.on("delegatedReq", handleDelegatedReqStatus);
 		socket.on("dispatchedReq", handleDispatchedReqStatus);
+		socket.on("certificateMade", handleCertificateMade);
 
 		return () => {
 			socket.off("newRequest", addNewRequest);
@@ -94,8 +100,34 @@ const Requests: React.FC = () => {
 			socket.off("rejectedReq", handleRejectedReqStatus);
 			socket.off("delegatedReq", handleDelegatedReqStatus);
 			socket.off("dispatchedReq", handleDispatchedReqStatus);
+			socket.off("certificateMade", handleCertificateMade);
 		};
 	}, []);
+
+	const handleCertificateMade = (reqId: string) => {
+		setRequests(prev =>
+			prev.map(req =>
+				req.id === reqId
+					? {
+						...req,
+						signedDocs: (req.signedDocs || 0) + 1
+					}
+					: req
+			)
+		);
+
+		setFilteredRequests(prev =>
+			prev.map(req =>
+				req.id === reqId
+					? {
+						...req,
+						signedDocs: (req.signedDocs || 0) + 1
+					}
+					: req
+			)
+		);
+	};
+
 
 	const handleDispatchedReqStatus = (reqId: string) => {
 		setRequests((prev) =>
@@ -182,6 +214,7 @@ const Requests: React.FC = () => {
 			createdBy: item.createdBy,
 			delegatedTo: item.delegatedTo,
 			_id: item._id,
+			signedDocs: item.signedDocs ?? 0,
 		};
 
 		setRequests((prev) => [newRequest, ...prev]);
@@ -217,6 +250,7 @@ const Requests: React.FC = () => {
 				assignedTo: item.assignedTo,
 				createdBy: item.createdBy,
 				delegatedTo: item.delegatedTo || null,
+				signedDocs: item.signedDocs || 0,
 			}));
 			setRequests(formatted);
 			setFilteredRequests(formatted);
@@ -267,8 +301,7 @@ const Requests: React.FC = () => {
 			setShowSignatureModal(false);
 			setOtp('')
 			otpForm.resetFields();
-			const res = await requestClient.getOtpReq(selectedRequestId);
-			console.log("res : ", res);
+			await requestClient.getOtpReq(selectedRequestId);
 			setShowOtpModal(true);
 		} catch (error) {
 			console.log("error in otp request : ", error);
@@ -286,9 +319,8 @@ const Requests: React.FC = () => {
 			const otpValue = values.otp;
 			if (!selectedRequestId) return;
 			setShowOtpModal(false);
-			const res = await requestClient.sendOtp({ reqId: selectedRequestId, otp: otpValue });
+			await requestClient.sendOtp({ reqId: selectedRequestId, otp: otpValue });
 			setOtp('')
-			console.log("res : ", res);
 			handleSign();
 		} catch (error) {
 			console.log("error in otp request : ", error);
@@ -535,7 +567,6 @@ const Requests: React.FC = () => {
 				return;
 			}
 			const result = await requestClient.dispatchRegister({ reqId: dispatchRegisterReqId, registerNumber: dispatchRegisterNumber });
-			console.log("result : ", result);
 			setDispatchRegisterReqId(null);
 			setDispatchRegisterNumber(null);
 		} catch (error) {
@@ -555,12 +586,38 @@ const Requests: React.FC = () => {
 
 	const handleDispatchSlip = async (reqId: string) => {
 		try {
-			const res = await requestClient.getDispatchSlip(reqId);
-			console.log("res : ", res);
+			await requestClient.getDispatchSlip(reqId);
 		} catch (error) {
 			console.log("error in dispatch slip : ", error);
 		}
 	}
+
+	const DocumentProgress: React.FC<DocumentProgressProps> = ({ signedDocs, totalDocs }) => {
+		const percentage = Math.min((signedDocs / totalDocs) * 100, 100);
+
+		return (
+			<div
+				style={{
+					width: "80px",
+					height: "5px",
+					border: "1px solid black",
+					backgroundColor: "white",
+					position: "relative",
+					borderRadius: "2px",
+					overflow: "hidden",
+				}}
+			>
+				<div
+					style={{
+						width: `${percentage}%`,
+						height: "100%",
+						backgroundColor: "#1890ff",
+						transition: "width 0.4s ease",
+					}}
+				/>
+			</div>
+		);
+	};
 
 	useEffect(() => {
 		const runInit = async () => {
@@ -622,26 +679,203 @@ const Requests: React.FC = () => {
 				</span>
 			)
 		},
-		{
-			title: "Status",
-			dataIndex: "reqStatus",
-			key: "reqStatus",
-			render: (status: number) => {
-				const statusMap: { [key: number]: { text: string; color: string } } = {
-					0: { text: "Unsigned", color: "gray" },
-					1: { text: "Read for Sign", color: "blue" },
-					2: { text: "Rejected", color: "red" },
-					3: { text: "Delegated", color: "purple" },
-					4: { text: "In Process", color: "orange" },
-					5: { text: "Signed", color: "green" },
-					6: { text: "Ready for Dispatch", color: "teal" },
-					7: { text: "Dispatched", color: "cyan" }
-				};
-				const { text, color } = statusMap[status] || { text: "Unknown", color: "default" };
+		// {
+		// 	title: "Status",
+		// 	dataIndex: "reqStatus",
+		// 	key: "reqStatus",
+		// 	render: (status: number, record: Request) => {
+		// 		const statusMap: { [key: number]: { text: string; color: string } } = {
+		// 			0: { text: "Unsigned", color: "gray" },
+		// 			1: { text: "Read for Sign", color: "blue" },
+		// 			2: { text: "Rejected", color: "red" },
+		// 			3: { text: "Delegated", color: "purple" },
+		// 			4: { text: "In Process", color: "orange" },
+		// 			5: { text: "Signed", color: "green" },
+		// 			6: { text: "Ready for Dispatch", color: "teal" },
+		// 			7: { text: "Dispatched", color: "cyan" }
+		// 		};
+		// 		const { text, color } = statusMap[status] || { text: "Unknown", color: "default" };
 
-				return <Tag color={color}>{text}</Tag>;
-			},
-		},
+		// 		return (
+		// 			<div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+		// 				<Tag color={color}>{text}</Tag>
+		// 				{status === 4 && (
+		// 					<DocumentProgress
+		// 						signedDocs={record.signedDocs || 0}
+		// 						totalDocs={record.totalDocs - record.rejectedDocs}
+		// 					/>
+		// 				)}
+		// 			</div>
+		// 		);
+		// 	}
+		// },
+		// {
+		// 	title: "Status",
+		// 	dataIndex: "reqStatus",
+		// 	key: "reqStatus",
+		// 	render: (status: number) => {
+		// 		const statusMap: { [key: number]: { text: string; color: string } } = {
+		// 			0: { text: "Unsigned", color: "gray" },
+		// 			1: { text: "Read for Sign", color: "blue" },
+		// 			2: { text: "Rejected", color: "red" },
+		// 			3: { text: "Delegated", color: "purple" },
+		// 			4: { text: "In Process", color: "orange" },
+		// 			5: { text: "Signed", color: "green" },
+		// 			6: { text: "Ready for Dispatch", color: "teal" },
+		// 			7: { text: "Dispatched", color: "cyan" }
+		// 		};
+		// 		const { text, color } = statusMap[status] || { text: "Unknown", color: "default" };
+
+		// 		return <Tag color={color}>{text}</Tag>;
+		// 	},
+		// },
+		// {
+		// 	title: "Status",
+		// 	dataIndex: "reqStatus",
+		// 	key: "reqStatus",
+		// 	render: (status: number, record: Request) => {
+		// 		const statusMap: { [key: number]: { text: string; color: string } } = {
+		// 			0: { text: "Unsigned", color: "gray" },
+		// 			1: { text: "Read for Sign", color: "blue" },
+		// 			2: { text: "Rejected", color: "red" },
+		// 			3: { text: "Delegated", color: "purple" },
+		// 			4: { text: "In Process", color: "orange" },
+		// 			5: { text: "Signed", color: "green" },
+		// 			6: { text: "Ready for Dispatch", color: "teal" },
+		// 			7: { text: "Dispatched", color: "cyan" }
+		// 		};
+
+		// 		if (status === 4) {
+		// 			const percentage = Math.min((record.signedDocs ?? 0) / (record.totalDocs - record.rejectedDocs) * 100, 100);
+		// 			return (
+		// 				<div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+		// 					<Tag color={statusMap[4].color}>{statusMap[4].text}</Tag>
+		// 					<div
+		// 						style={{
+		// 							width: "80px",
+		// 							height: "5px",
+		// 							border: "1px solid black",
+		// 							backgroundColor: "white",
+		// 							position: "relative",
+		// 							borderRadius: "2px",
+		// 							overflow: "hidden",
+		// 						}}
+		// 					>
+		// 						<div
+		// 							style={{
+		// 								width: `${percentage}%`,
+		// 								height: "100%",
+		// 								backgroundColor: "#1890ff",
+		// 								transition: "width 0.4s ease",
+		// 							}}
+		// 						/>
+		// 					</div>
+		// 				</div>
+		// 			);
+		// 		}
+
+		// 		const { text, color } = statusMap[status] || { text: "Unknown", color: "default" };
+		// 		return <Tag color={color}>{text}</Tag>;
+		// 	}
+		// },
+		// {
+		// 	title: "Status",
+		// 	dataIndex: "reqStatus",
+		// 	key: "reqStatus",
+		// 	render: (text: any, record: Request) => {
+		// 		if (record.reqStatus === 4) {
+		// 			const percentage = Math.min((record.signedDocs || 0) / (record.totalDocs || 1) * 100, 100);
+
+		// 			return (
+		// 				<div style={{ width: 80 }}>
+		// 					<div style={{ fontSize: 12, marginBottom: 4 }}>{`In Progress`}</div>
+		// 					<div style={{
+		// 						width: "100%",
+		// 						height: 6,
+		// 						backgroundColor: "#f0f0f0",
+		// 						borderRadius: 4,
+		// 						position: "relative"
+		// 					}}>
+		// 						<div
+		// 							style={{
+		// 								width: `${percentage}%`,
+		// 								height: "100%",
+		// 								backgroundColor: "#1890ff",
+		// 								borderRadius: 4,
+		// 								transition: "width 0.3s ease"
+		// 							}}
+		// 						/>
+		// 					</div>
+		// 					<div style={{ fontSize: 10, textAlign: "right" }}>{`${Math.round(percentage)}%`}</div>
+		// 				</div>
+		// 			);
+		// 		}
+
+		// 		const statusMap: Record<number, { text: string; color: string }> = {
+		// 			0: { text: "Pending", color: "orange" },
+		// 			1: { text: "Read for Sign", color: "blue" },
+		// 			2: { text: "Rejected", color: "red" },
+		// 			3: { text: "Delegated", color: "purple" },
+		// 			5: { text: "Signed", color: "green" },
+		// 			6: { text: "Completed", color: "cyan" },
+		// 			7: { text: "Dispatched", color: "gold" },
+		// 		};
+
+		// 		const status = statusMap[record.reqStatus] || { text: "Unknown", color: "default" };
+
+		// 		return <Tag color={status.color}>{status.text}</Tag>;
+		// 	}
+		// },
+		{
+	title: "Status",
+	dataIndex: "reqStatus",
+	key: "reqStatus",
+	render: (text: any, record: Request) => {
+		if (record.reqStatus === 4) {
+			const percentage = Math.min((record.signedDocs || 0) / (record.totalDocs || 1) * 100, 100);
+
+			return (
+				<div style={{ width: 100 }}>
+					<div
+						style={{
+							width: "100%",
+							height: 15,
+							backgroundColor: "#f0f0f0",
+							border: "1px solid gray",
+							borderRadius: 4,
+							position: "relative",
+							overflow: "hidden"
+						}}
+					>
+						<div
+							style={{
+								width: `${percentage}%`,
+								height: "100%",
+								backgroundColor: "#1890ff",
+								borderRadius: 4,
+								transition: "width 0.3s ease"
+							}}
+						/>
+					</div>
+				</div>
+			);
+		}
+
+		const statusMap: Record<number, { text: string; color: string }> = {
+			0: { text: "Pending", color: "orange" },
+			1: { text: "Read for Sign", color: "blue" },
+			2: { text: "Rejected", color: "red" },
+			3: { text: "Delegated", color: "purple" },
+			5: { text: "Signed", color: "green" },
+			6: { text: "Completed", color: "cyan" },
+			7: { text: "Dispatched", color: "gold" },
+		};
+
+		const status = statusMap[record.reqStatus] || { text: "Unknown", color: "default" };
+
+		return <Tag color={status.color}>{status.text}</Tag>;
+	}
+},
 		{
 			title: "Created At",
 			dataIndex: "createdAt",

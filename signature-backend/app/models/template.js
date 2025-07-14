@@ -91,6 +91,10 @@ export const schema = new mongoose.Schema({
     'signOtp' : {
         type: String
     },
+    'signedDocs' : {
+        type: Number,
+        default: 0
+    },
     'otpGeneratedAt' : {
         type: Date
     },

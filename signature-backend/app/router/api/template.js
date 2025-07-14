@@ -20,7 +20,8 @@ import archiver from "archiver";
 import { fileURLToPath } from 'url';
 import crypto from "crypto";
 import { getIO } from "../../config/socket.js";
-
+import os from "os";
+import { v4 as uuidv4 } from "uuid";
 
 const router = express.Router();
 
@@ -805,23 +806,41 @@ export const getFilledDocxBuffer = async (
 	}
 };
 
-export const convertToPdf = (docxBuffer) => {
-	return new Promise((resolve, reject) => {
-		if (!docxBuffer || !Buffer.isBuffer(docxBuffer) || docxBuffer.length === 0) {
-			return reject(new Error("Invalid DOCX buffer: Buffer is empty or malformed"));
-		}
+// export const convertToPdf = (docxBuffer) => {
+// 	return new Promise((resolve, reject) => {
+// 		if (!docxBuffer || !Buffer.isBuffer(docxBuffer) || docxBuffer.length === 0) {
+// 			return reject(new Error("Invalid DOCX buffer: Buffer is empty or malformed"));
+// 		}
 
-		libre.convert(docxBuffer, ".pdf", undefined, (err, done) => {
+// 		libre.convert(docxBuffer, ".pdf", undefined, (err, done) => {
+// 			if (err) {
+// 				console.error("Error converting to PDF:", err);
+// 				reject(err);
+// 			} else {
+// 				resolve(done);
+// 			}
+// 		});
+// 	});
+// };
+
+export const convertToPdf = async (docxBuffer) => {
+	const tmpDir = os.tmpdir();
+	const docxPath = path.join(tmpDir, `${uuidv4()}.docx`);
+	const pdfPath = docxPath.replace(/\.docx$/, '.pdf');
+
+	fs.writeFileSync(docxPath, docxBuffer);
+
+	return new Promise((resolve, reject) => {
+		libre.convert(fs.readFileSync(docxPath), '.pdf', undefined, (err, done) => {
+			fs.unlinkSync(docxPath); // Clean up temp docx
 			if (err) {
-				console.error("Error converting to PDF:", err);
-				reject(err);
-			} else {
-				resolve(done);
+				console.error("LibreOffice conversion failed:", err);
+				return reject(err);
 			}
+			resolve(done);
 		});
 	});
 };
-
 
 // export const convertToPdf = (docxBuffer) => {
 // 	return new Promise((resolve, reject) => {

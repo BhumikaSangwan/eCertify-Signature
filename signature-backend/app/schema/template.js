@@ -38,6 +38,7 @@ export const TemplateSchema = zod.object({
     signatureId: objectId.optional(),
     signedBy: objectId.optional(),
     signOtp: zod.string().optional(),
+    signedDocs: zod.number().int().nonnegative().default(0).optional(),
     otpGeneratedAt: zod.date().optional(),
     rejectionReason: zod.string().optional(),
     delegationReason: zod.string().optional(),

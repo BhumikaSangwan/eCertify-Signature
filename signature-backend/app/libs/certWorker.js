@@ -2,6 +2,8 @@ import fs from 'fs';
 import path from 'path';
 import { signStatus, status } from '../constants/index.js';
 import { getFilledDocxBuffer, convertToPdf } from '../router/api/template.js';
+import { getIO } from '../config/socket.js';
+import model from "../models/template.js"
 
 export async function processCertificateJob(job) {
   const { doc, requestId, batchIndex, certDir, template, signatureImageUrl } = job.data;
@@ -23,5 +25,9 @@ export async function processCertificateJob(job) {
 
   const outputPath = path.join(certDir, `${doc.id}.pdf`);
   fs.writeFileSync(outputPath, pdfBuffer);
+  const io = getIO();
+  console.log("certificate generated for request : ", requestId, " document : ", doc.id);
+  io.emit("certificateMade", requestId);
+  const res = await model.findOneAndUpdate({ id: requestId }, { $inc: { signedDocs: 1 } });
 }
 
