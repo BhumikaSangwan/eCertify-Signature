@@ -26,8 +26,7 @@ export async function processCertificateJob(job) {
   const outputPath = path.join(certDir, `${doc.id}.pdf`);
   fs.writeFileSync(outputPath, pdfBuffer);
   const io = getIO();
-  console.log("certificate generated for request : ", requestId, " document : ", doc.id);
   io.emit("certificateMade", requestId);
-  const res = await model.findOneAndUpdate({ id: requestId }, { $inc: { signedDocs: 1 } });
+  await model.findOneAndUpdate({ id: requestId }, { $inc: { signedDocs: 1 } });
 }
 

@@ -29,7 +29,7 @@ interface RequestTableRow {
 interface RequestDataItem {
 	id: string;
 	data: Record<string, any>;
-	signStatus: number;	
+	signStatus: number;
 }
 
 export default function RequestPage() {
@@ -51,26 +51,25 @@ export default function RequestPage() {
 	const [signStatus, setSignStatus] = useState<number>(0);
 
 	useEffect(() => {
-			const runInit = async () => {
-				await useAppStore.getState().init();
-				const session = useAppStore.getState().session;
-	
-				if (!session?.userId || !session?.role) {
-					message.error("Failed to fetch session data.");
-					return;
-				}
-	
-				setUserId(session.userId);
-			};
-	
-			runInit();
-		}, []);
+		const runInit = async () => {
+			await useAppStore.getState().init();
+			const session = useAppStore.getState().session;
+
+			if (!session?.userId || !session?.role) {
+				message.error("Failed to fetch session data.");
+				return;
+			}
+
+			setUserId(session.userId);
+		};
+
+		runInit();
+	}, []);
 
 	const fetchRequest = async (id: string) => {
 		try {
 			setLoading(true);
 			const result = await requestClient.getRequest(id);
-			console.log("req result : ", result);
 			setCurrentRequest(result);
 			setRequestName(result.description || "Document Management");
 			setCreatedBy(result.createdBy);
@@ -85,26 +84,55 @@ export default function RequestPage() {
 			});
 			const dynamicKeys = Array.from(dynamicKeysSet);
 
-			const dynamicColumns = dynamicKeys.map((key) => ({
+			const dynamicColumns: ColumnsType<RequestTableRow> = dynamicKeys.map((key) => ({
 				title: key,
 				dataIndex: key,
 				key: key,
 			}));
 
-			const fixedColumns = [
+			const requestSignStatus = result.signStatus;
+
+			const fixedColumns: ColumnsType<RequestTableRow> = [
 				{
 					title: "Preview",
-					dataIndex: "preview",
 					key: "preview",
+					dataIndex: "preview",
 				},
 				{
 					title: "Actions",
-					dataIndex: "action",
-					key: "action",
+					key: "actions",
+					render: (_: any, record: RequestTableRow) => {
+						const isDisabled = ![0, 1, 2].includes(requestSignStatus);
+
+						return (
+							<Flex>
+								<Popconfirm
+									title="Are you sure to delete this request?"
+									onConfirm={() => deleteDocument(record)}
+								>
+									<Button
+										danger
+										style={{ marginRight: "10px" }}
+										disabled={isDisabled}
+									>
+										Delete
+									</Button>
+								</Popconfirm>
+								{requestSignStatus !== 2 && (
+									<Button
+										onClick={() => showRejectionForm(record)}
+										disabled={isDisabled}
+									>
+										Reject
+									</Button>
+								)}
+							</Flex>
+						);
+					},
 				},
 			];
 
-			const allColumns = [...dynamicColumns, ...fixedColumns];
+			const allColumns: ColumnsType<RequestTableRow> = [...dynamicColumns, ...fixedColumns];
 			setTableColumns(allColumns);
 
 			const formattedData = dataArray.map((item: RequestDataItem, index: number) => {
@@ -115,8 +143,8 @@ export default function RequestPage() {
 					requestStatus: result.signStatus,
 					preview: (
 						<Flex>
-							{ item.signStatus != 2 && <Button onClick={() => showPreview(item)}>Preview</Button>}
-							{ item.signStatus == 2 && <Tag color="red" style={{padding: "5px 15px"}}>Rejected</Tag>}
+							{item.signStatus != 2 && <Button onClick={() => showPreview(item)}>Preview</Button>}
+							{item.signStatus == 2 && <Tag color="red" style={{ padding: "5px 15px" }}>Rejected</Tag>}
 						</Flex>
 					),
 					action: (
@@ -125,13 +153,23 @@ export default function RequestPage() {
 								title="Are you sure to delete this request?"
 								onConfirm={() => deleteDocument(item)}
 							>
-								<Button danger style={{marginRight: "10px"}}>Delete</Button>
+								<Button danger
+									style={{ marginRight: "10px" }}
+									disabled={![0, 1, 2].includes(signStatus)}
+								>
+									Delete
+								</Button>
 							</Popconfirm>
 							{
-								item.signStatus != 2 && 
-								<Button onClick={() => showRejectionForm(item)}>Reject</Button>
+								item.signStatus != 2 &&
+								<Button
+									onClick={() => showRejectionForm(item)}
+									disabled={![0, 1, 2].includes(signStatus)}
+								>
+									Reject
+								</Button>
 							}
-							
+
 						</Flex>
 					),
 				};
@@ -145,7 +183,7 @@ export default function RequestPage() {
 		}
 	};
 
-	async function showPreview(item: RequestDataItem) {
+	async function showPreview(item: RequestTableRow) {
 		try {
 			const docId = item.id;
 			if (!id) {
@@ -167,7 +205,7 @@ export default function RequestPage() {
 		}
 	}
 
-	async function deleteDocument(item: RequestDataItem) {
+	async function deleteDocument(item: RequestTableRow) {
 		try {
 			const docId = item.id;
 			if (!id) {
@@ -182,14 +220,13 @@ export default function RequestPage() {
 		}
 	}
 
-	async function showRejectionForm(item: RequestDataItem) {
+	async function showRejectionForm(item: RequestTableRow) {
 		setRejectionFormVisible(true);
 		setRejectingItem(item);
 		setRejectionReason('');
 	}
 
 	async function handleRejectDoc() {
-		console.log("req id : ", id);
 		if (!rejectionReason.trim()) return;
 
 		if (!id || !rejectingItem) {
@@ -211,8 +248,8 @@ export default function RequestPage() {
 				if (row.id === rejectingItem.id) {
 					return {
 						...row,
-						preview: <Tag color="red"  style={{padding: "5px 15px"}}>Rejected</Tag>,
-						action: <Button danger style={{marginRight: "10px"}}>Delete</Button>
+						preview: <Tag color="red" style={{ padding: "5px 15px" }}>Rejected</Tag>,
+						action: <Button danger style={{ marginRight: "10px" }}>Delete</Button>
 					};
 				}
 				return row;
@@ -304,15 +341,15 @@ export default function RequestPage() {
 			title={requestName}
 			extra={
 				<Flex gap={12}>
-					{ userId == createdBy && signStatus == 0 &&
-					<Button
-						type="primary"
-						onClick={() => setIsDrawerOpen(true)}
-						style={{ width: 160 }}
-					>
-						Upload File
-					</Button>
-			}
+					{userId == createdBy && signStatus == 0 &&
+						<Button
+							type="primary"
+							onClick={() => setIsDrawerOpen(true)}
+							style={{ width: 160 }}
+						>
+							Upload File
+						</Button>
+					}
 					<Button
 						type="primary"
 						onClick={() => handleDownloadTemplate()}
